@@ -20,7 +20,7 @@ private _fuelText = format [" | Fuel: %1%%", floor(_fuel * 100)];
 // Get combat mode
 private _combatMode = "UNKNOWN";
 if (count (crew _vehicle) > 0) then {
-    _combatMode = combatMode (group (crew _vehicle select 0));
+    _combatMode = combatMode (group (driver _vehicle));
 };
 
 private _combatText = switch (_combatMode) do {

@@ -5,8 +5,14 @@ if (isNull _unit) exitWith {
     _ctrl ctrlShow false;
 };
 
+// Get group to determine combat mode and speed
+private _group = group _unit;
+if (isNull _group) exitWith {
+    _ctrl ctrlShow false;
+};
+
 // Get combat mode
-private _combatMode = if (!isNull (group _unit)) then { combatMode (group _unit) } else { "UNKNOWN" };
+private _combatMode = combatMode _group;
 private _combatText = switch (_combatMode) do {
     case "BLUE": { "Holding Fire" };
     case "GREEN": { "Hold Fire, Engage at Will" };
@@ -17,7 +23,7 @@ private _combatText = switch (_combatMode) do {
 };
 
 // Get movement speed
-private _speed = speedMode (group _unit);
+private _speed = speedMode _group;
 private _speedText = switch (_speed) do {
     case "LIMITED": { "Slow" };
     case "NORMAL": { "Normal" };

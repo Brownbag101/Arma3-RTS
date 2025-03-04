@@ -171,7 +171,7 @@ RTSUI_actionDatabase = [
     [
         "squad_formation_line",
         "Line Formation",
-        "\A3\ui_f\data\IGUI\Cfg\Cursors\tacticalmenu\formation_line_ca.paa",
+        "a3\ui_f_curator\data\rsccommon\rscattributeformation\line_ca.paa",
         "Set Line Formation",
         "scripts\actions\squadActions\formationLine.sqf",
         ["SQUAD"]
@@ -179,7 +179,7 @@ RTSUI_actionDatabase = [
     [
         "squad_formation_column",
         "Column Formation",
-        "\A3\ui_f\data\IGUI\Cfg\Cursors\tacticalmenu\formation_column_ca.paa",
+        "a3\3den\data\attributes\formation\stag_column_ca.paa",
         "Set Column Formation",
         "scripts\actions\squadActions\formationColumn.sqf",
         ["SQUAD"]

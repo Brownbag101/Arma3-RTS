@@ -199,96 +199,110 @@ fnc_createBaseUI = {
     
     // Real-time status update monitoring
     [] spawn {
-        private ["_lastHealthState", "_lastFatigueState", "_lastAmmoState", "_lastFuelState"];
-        _lastHealthState = -1;
-        _lastFatigueState = -1;
-        _lastAmmoState = -1;
-        _lastFuelState = -1;
-        
-        while {!isNull findDisplay 312} do {
-            // Only update if we have a valid selection
-            if (!isNull RTSUI_selectedUnit) then {
-                // Check if the entity type should be updated
-                private _entity = RTSUI_selectedUnit;
-                private _currentPanels = [];
-                
-                // Determine which panels need real-time updates based on entity type
-                private _entityType = missionNamespace getVariable ["RTSUI_lastEntityType", ""];
-                
-                // If no explicit entity type, determine from selection type
-                if (_entityType == "") then {
-                    if (RTSUI_lastSelectionType == "SQUAD") then {
-                        _entityType = "SQUAD";
-                    } else {
-                        _entityType = [[RTSUI_selectedUnit]] call fnc_getSelectionType;
-                    };
-                };
-                
-                switch (_entityType) do {
-                    case "MAN": {
-                        // Update health, fatigue, ammo for infantry
-                        private _health = 1 - damage _entity;
-                        private _fatigue = getFatigue _entity;
-                        private _ammo = if (currentWeapon _entity != "") then {_entity ammo (currentWeapon _entity)} else {0};
-                        
-                        // Only update if values have changed
-                        if (abs(_health - _lastHealthState) > 0.01) then {
-                            _lastHealthState = _health;
-                            [_entity, "health"] call fnc_updateSpecificPanel;
-                        };
-                        
-                        if (abs(_fatigue - _lastFatigueState) > 0.01) then {
-                            _lastFatigueState = _fatigue;
-                            [_entity, "fatigue"] call fnc_updateSpecificPanel;
-                        };
-                        
-                        if (_ammo != _lastAmmoState) then {
-                            _lastAmmoState = _ammo;
-                            [_entity, "ammo"] call fnc_updateSpecificPanel;
-                        };
-                    };
-                    
-                    case "VEHICLE": {
-                        // Update health, fuel, ammo for vehicles
-                        private _health = 1 - damage _entity;
-                        private _fuel = fuel _entity;
-                        private _ammo = if (currentWeapon _entity != "") then {_entity ammo (currentWeapon _entity)} else {0};
-                        
-                        // Make sure name is always shown
-                        [_entity, "vehicleType"] call fnc_updateSpecificPanel;
-                        
-                        // Only update if values have changed
-                        if (abs(_health - _lastHealthState) > 0.01) then {
-                            _lastHealthState = _health;
-                            [_entity, "vehicleHealth"] call fnc_updateSpecificPanel;
-                        };
-                        
-                        if (abs(_fuel - _lastFuelState) > 0.01) then {
-                            _lastFuelState = _fuel;
-                            [_entity, "vehicleFuel"] call fnc_updateSpecificPanel;
-                        };
-                        
-                        if (_ammo != _lastAmmoState) then {
-                            _lastAmmoState = _ammo;
-                            [_entity, "vehicleAmmo"] call fnc_updateSpecificPanel;
-                        };
-                        
-                        // Always update cargo and weapon info to reflect any changes
-                        [_entity, "vehicleCargoInfo"] call fnc_updateSpecificPanel;
-                        [_entity, "vehicleWeapon"] call fnc_updateSpecificPanel;
-                    };
-                    
-                    case "SQUAD": {
-                        // For squads, continuously update group status
-                        [_entity, "groupStatus"] call fnc_updateSpecificPanel;
-                        [_entity, "squadTask"] call fnc_updateSpecificPanel;
-                    };
+    private ["_lastHealthState", "_lastFatigueState", "_lastAmmoState", "_lastFuelState", "_lastCombatMode", "_lastStance"];
+    _lastHealthState = -1;
+    _lastFatigueState = -1;
+    _lastAmmoState = -1;
+    _lastFuelState = -1;
+    _lastCombatMode = "";
+    _lastStance = "";
+    
+    while {!isNull findDisplay 312} do {
+        // Only update if we have a valid selection
+        if (!isNull RTSUI_selectedUnit) then {
+            // Check if the entity type should be updated
+            private _entity = RTSUI_selectedUnit;
+            
+            // Determine entity type from selection or entity class
+            private _entityType = missionNamespace getVariable ["RTSUI_lastEntityType", ""];
+            
+            // If no explicit entity type, determine from selection type
+            if (_entityType == "") then {
+                if (RTSUI_lastSelectionType == "SQUAD") then {
+                    _entityType = "SQUAD";
+                } else {
+                    _entityType = [[RTSUI_selectedUnit]] call fnc_getSelectionType;
                 };
             };
             
-            sleep 0.25; // Update 4 times per second
+            switch (_entityType) do {
+                case "MAN": {
+                    // Update for infantry - check all key status changes
+                    private _health = 1 - damage _entity;
+                    private _fatigue = getFatigue _entity;
+                    private _ammo = if (currentWeapon _entity != "") then {_entity ammo (currentWeapon _entity)} else {0};
+                    private _combatMode = combatMode (group _entity);
+                    private _stance = stance _entity;
+                    
+                    // Check for state changes and update relevant panels
+                    if (abs(_health - _lastHealthState) > 0.01) then {
+                        _lastHealthState = _health;
+                        [_entity, "healthStatus"] call fnc_updateSpecificPanel;
+                    };
+                    
+                    if (_ammo != _lastAmmoState) then {
+                        _lastAmmoState = _ammo;
+                        [_entity, "healthStatus"] call fnc_updateSpecificPanel;
+                    };
+                    
+                    if (abs(_fatigue - _lastFatigueState) > 0.01) then {
+                        _lastFatigueState = _fatigue;
+                        [_entity, "healthStatus"] call fnc_updateSpecificPanel;
+                    };
+                    
+                    if (_combatMode != _lastCombatMode) then {
+                        _lastCombatMode = _combatMode;
+                        [_entity, "combatStatus"] call fnc_updateSpecificPanel;
+                    };
+                    
+                    if (_stance != _lastStance) then {
+                        _lastStance = _stance;
+                        [_entity, "stance"] call fnc_updateSpecificPanel;
+                    };
+                    
+                    // Always update weapon panel on each tick since this can change often
+                    [_entity, "weapon"] call fnc_updateSpecificPanel;
+                };
+                
+                case "VEHICLE": {
+                    // Update for vehicles
+                    private _health = 1 - damage _entity;
+                    private _fuel = fuel _entity;
+                    private _ammo = if (currentWeapon _entity != "") then {_entity ammo (currentWeapon _entity)} else {0};
+                    private _combatMode = if (count (crew _entity) > 0) then {combatMode (group (driver _entity))} else {"UNKNOWN"};
+                    
+                    // Always update vehicle type info
+                    [_entity, "vehicleType"] call fnc_updateSpecificPanel;
+                    
+                    // Check for state changes and update relevant panels
+                    if (abs(_health - _lastHealthState) > 0.01 || abs(_fuel - _lastFuelState) > 0.01 || _combatMode != _lastCombatMode) then {
+                        _lastHealthState = _health;
+                        _lastFuelState = _fuel;
+                        _lastCombatMode = _combatMode;
+                        [_entity, "vehicleStatus"] call fnc_updateSpecificPanel;
+                    };
+                    
+                    if (_ammo != _lastAmmoState) then {
+                        _lastAmmoState = _ammo;
+                        [_entity, "vehicleWeapon"] call fnc_updateSpecificPanel;
+                    };
+                    
+                    // Always update cargo info since it can change from external events
+                    [_entity, "vehicleCargoInfo"] call fnc_updateSpecificPanel;
+                };
+                
+                case "SQUAD": {
+                    // For squads, continuously update all squad information
+                    [_entity, "squad"] call fnc_updateSpecificPanel;
+                    [_entity, "groupStatus"] call fnc_updateSpecificPanel;
+                    [_entity, "squadTask"] call fnc_updateSpecificPanel;
+                };
+            };
         };
+        
+        sleep 0.25; // Update 4 times per second
     };
+};
     
     waitUntil {isNull findDisplay 312};
     {

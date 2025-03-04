@@ -2,7 +2,7 @@
 params ["_ctrl", "_unit"];
 
 if (isNull _unit) exitWith {
-    _ctrl ctrlSetText "Name: No selection";
+    _ctrl ctrlSetText "No selection";
     _ctrl ctrlSetTextColor [0.7, 0.7, 0.7, 1];
     _ctrl ctrlShow true;
 };
