@@ -1,3 +1,8 @@
+if (isNil "RTSUI_abilityIcons") then { 
+    RTSUI_abilityIcons = []; 
+};
+
+
 // Core Variables
 RTSUI_controls = [];
 RTSUI_selectedUnit = objNull;

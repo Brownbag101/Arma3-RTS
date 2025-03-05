@@ -1,3 +1,6 @@
+// Add to the init.sqf file, after the economy initialization
+// (around line 7, after the economy and menu init):
+
 if (hasInterface) then {
     // Load core UI system
     [] execVM "scripts\ui\rtsUI.sqf";
@@ -5,11 +8,16 @@ if (hasInterface) then {
     // Load special abilities system
     [] execVM "scripts\specialAbilities\abilityManager.sqf";
 	
-	[] execVM "scripts\economy\economyInit.sqf";
+    // Load economy system
+    [] execVM "scripts\economy\economyInit.sqf";
 	
-	    [] execVM "scripts\menu\menuInit.sqf";
+    // Load menu system
+    [] execVM "scripts\menu\menuInit.sqf";
+    
+    // Load recruitment system (after economy is loaded)
+    [] execVM "scripts\menu\recruitmentInit.sqf";
 
-	
+    // Load Zeus selective control
     [] execVM "zeus_selective_control.sqf";
     [] execVM "zeus_visibility.sqf";
     
@@ -21,11 +29,8 @@ if (hasInterface) then {
 [] execVM "scripts\cargoSystem.sqf";
 [] execVM "scripts\towSystem.sqf";
 
-
-
 if (isServer) then {
-	[] execVM "zeusUISystem.sqf";
+    [] execVM "zeusUISystem.sqf";
 };
-
 
 //[] execVM "zeus.sqf";

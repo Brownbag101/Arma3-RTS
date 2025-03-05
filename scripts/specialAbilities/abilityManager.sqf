@@ -71,6 +71,11 @@ fnc_unlockAbility = {
 fnc_createAbilityIcons = {
     params ["_display"];
     
+    // Ensure RTSUI_abilityIcons is initialized
+    if (isNil "RTSUI_abilityIcons") then { 
+        RTSUI_abilityIcons = []; 
+    };
+    
     // Clear existing icons
     {
         ctrlDelete _x;
@@ -82,6 +87,11 @@ fnc_createAbilityIcons = {
         systemChat "No unit selected, clearing ability icons";
     };
     
+    // Check if required functions exist
+    if (isNil "fnc_getUnitAbilities") exitWith {
+        systemChat "Ability system functions not loaded yet";
+    };
+    
     // Get unit's abilities
     private _abilities = [RTSUI_selectedUnit] call fnc_getUnitAbilities;
     
@@ -91,6 +101,7 @@ fnc_createAbilityIcons = {
     
     systemChat format ["Creating icons for abilities: %1", _abilities];
     
+    // Rest of the function remains the same...
     // Layout configuration
     private _iconSize = 0.04 * safezoneH;
     private _spacing = 0.005 * safezoneW;
@@ -132,25 +143,25 @@ fnc_createAbilityIcons = {
             _button ctrlSetTooltip format ["%1: %2", _name, _tooltip];
             
             // Add click handler to the button
-			_button ctrlAddEventHandler ["ButtonClick", {
-				params ["_ctrl"];
-				private _ability = _ctrl getVariable "abilityData";
-				_ability params ["_id", "_iconPath", "_name", "_tooltip", "_script"];
-				
-				if (!isNull RTSUI_selectedUnit) then {
-					systemChat format ["Starting %1 ability execution...", _name];
-					
-					// Execute the ability script
-					private _result = [RTSUI_selectedUnit] execVM _script;
-					
-					// Debug output
-					if (isNil "_result") then {
-						systemChat "Error: Script execution failed!";
-					} else {
-						systemChat format ["Script %1 executed", _script];
-					};
-				};
-			}];
+            _button ctrlAddEventHandler ["ButtonClick", {
+                params ["_ctrl"];
+                private _ability = _ctrl getVariable "abilityData";
+                _ability params ["_id", "_iconPath", "_name", "_tooltip", "_script"];
+                
+                if (!isNull RTSUI_selectedUnit) then {
+                    systemChat format ["Starting %1 ability execution...", _name];
+                    
+                    // Execute the ability script
+                    private _result = [RTSUI_selectedUnit] execVM _script;
+                    
+                    // Debug output
+                    if (isNil "_result") then {
+                        systemChat "Error: Script execution failed!";
+                    } else {
+                        systemChat format ["Script %1 executed", _script];
+                    };
+                };
+            }];
             
             _button setVariable ["abilityData", _abilityData];
             _button ctrlCommit 0;

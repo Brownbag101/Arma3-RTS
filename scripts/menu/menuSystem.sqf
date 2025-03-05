@@ -18,7 +18,7 @@ RTS_fnc_createMenuButtons = {
     // Clear existing controls
     call RTS_fnc_destroyMenuButtons;
     
-    // Use the actual Zeus display instead of creating a new layer
+    // Use the actual Zeus display
     private _display = findDisplay 312;
     if (isNull _display) then {
         systemChat "Zeus display not found! Cannot create menu buttons.";
@@ -59,7 +59,7 @@ RTS_fnc_createMenuButtons = {
         _btnBg ctrlCommit 0;
         RTS_menuControls pushBack _btnBg;
         
-        // Create icon separately
+        // Create icon
         private _btnIcon = _display ctrlCreate ["RscPicture", -1];
         _btnIcon ctrlSetPosition [
             _startX + 0.01 * safezoneW,
@@ -80,7 +80,7 @@ RTS_fnc_createMenuButtons = {
             _buttonSize
         ];
         _btn ctrlSetText "";
-        _btn ctrlSetBackgroundColor [0, 0, 0, 0.01]; // Almost transparent but not completely
+        _btn ctrlSetBackgroundColor [0, 0, 0, 0.01]; // Almost transparent
         _btn ctrlSetTooltip format ["%1: %2", _name, _tooltip];
         
         // Store button data
@@ -111,27 +111,32 @@ RTS_fnc_createMenuButtons = {
             systemChat format ["CLICKED: Opening %1 panel", _name];
             hint format ["%1 panel opened", _name];
             
-            // Here you would call your existing functions based on the button ID
+            // Call appropriate function based on button ID
             switch (_id) do {
                 case "command": {
-                    // Call your command system
-                    // Example: [] call RTS_fnc_openCommandPanel;
+                    // Command system
+                    systemChat "Command panel not implemented yet";
                 };
                 case "intelligence": {
-                    // Call your intelligence system
-                    // Example: [] call RTS_fnc_openIntelligencePanel;
+                    // Intelligence system
+                    systemChat "Intelligence panel not implemented yet";
                 };
                 case "research": {
-                    // Call your research system
-                    // Example: [] call RTS_fnc_openResearchPanel;
+                    // Research system
+                    systemChat "Research panel not implemented yet";
                 };
                 case "construction": {
-                    // Call your construction system
-                    // Example: [] call RTS_fnc_openConstructionPanel;
+                    // Construction system
+                    systemChat "Construction panel not implemented yet";
                 };
                 case "training": {
-                    // Call your training system
-                    // Example: [] call RTS_fnc_openTrainingPanel;
+                    // Call recruitment system
+                    if (!isNil "RTS_fnc_recruitOrder") then {
+                        [] call RTS_fnc_recruitOrder;
+                    } else {
+                        systemChat "Recruitment system is not loaded yet";
+                        hint "Recruitment system is not loaded yet";
+                    };
                 };
             };
         }];
@@ -179,5 +184,24 @@ RTS_fnc_destroyMenuButtons = {
             };
             sleep 1;
         };
+    };
+};
+
+// Add this at the end of the menuSystem.sqf file to make sure it runs right away
+[] spawn {
+    // Check for Zeus interface
+    while {true} do {
+        if (!isNull findDisplay 312) exitWith {
+            systemChat "Zeus interface detected - creating menu buttons";
+            [] call RTS_fnc_createMenuButtons;
+            
+            // Add handler for Zeus interface closing
+            (findDisplay 312) displayAddEventHandler ["Unload", {
+                call RTS_fnc_destroyMenuButtons;
+                RTS_menuControls = [];
+                systemChat "Zeus interface closed - menu buttons removed";
+            }];
+        };
+        sleep 1;
     };
 };

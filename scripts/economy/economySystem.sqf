@@ -10,7 +10,9 @@ if (isNil "RTS_resources") then {
         ["oil", 200],       // Starting with 200 oil
         ["rubber", 100],    // Starting with 100 rubber
         ["aluminum", 150],  // Starting with 150 aluminum
-        ["training", 100]   // Starting with 100 training points
+        ["training", 100],  // Starting with 100 training points
+        ["manpower", 100],  // Starting with 100 manpower
+        ["fuel", 1000]      // Starting with 1000 fuel
     ];
     
     // Resource income rates (per minute)
@@ -20,7 +22,9 @@ if (isNil "RTS_resources") then {
         ["oil", 3],         // 3 oil per minute
         ["rubber", 2],      // 2 rubber per minute
         ["aluminum", 2],    // 2 aluminum per minute
-        ["training", 1]     // 1 training point per minute
+        ["training", 1],    // 1 training point per minute
+        ["manpower", 2],    // 2 manpower per minute
+        ["fuel", 5]         // 5 fuel per minute
     ];
     
     // Last time resources were updated
@@ -34,7 +38,9 @@ RTS_resourceIcons = [
     ["oil", "\a3\ui_f\data\gui\rsc\rscdisplayarcademap\clear_ca.paa", "Oil: Used for fuel and advanced components"],
     ["rubber", "\a3\ui_f\data\gui\rsc\rscdisplayconfigure\preview_ca.paa", "Rubber: Used for vehicles and equipment"],
     ["aluminum", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\cargoput_ca.paa", "Aluminum: Used for aircraft and advanced equipment"],
-    ["training", "\a3\ui_f\data\gui\rsc\rscdisplaymultiplayersetup\flag_blue_co.paa", "Training Points: Used to upgrade units"]
+    ["training", "\a3\ui_f\data\gui\rsc\rscdisplaymultiplayersetup\flag_blue_co.paa", "Training Points: Used to upgrade units"],
+    ["manpower", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\face_ca.paa", "Manpower: Used to recruit new units"],
+    ["fuel", "\a3\ui_f\data\gui\rsc\rscdisplayarcademap\fuel_ca.paa", "Fuel: Used for vehicle operations and transportation"]
 ];
 
 // Function to get current amount of a specific resource
