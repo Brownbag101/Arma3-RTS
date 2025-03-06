@@ -233,7 +233,7 @@ RTSUI_actionDatabase = [
         "Suppress Area",
         "a3\structures_f_bootcamp\vr\helpers\data\vr_symbol_balistics_ca.paa",
         "Suppress Target Area",
-        "scripts\actions\vehicleActions\suppressArea.sqf",
+        "scripts\actions\vehicleActions\fireAtPosition.sqf",
         ["VEHICLE"]
     ],
     
