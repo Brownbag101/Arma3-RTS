@@ -362,7 +362,7 @@ fnc_isTechAvailable = {
     
     // Check if already being researched
     if (count MISSION_activeResearch > 0) then {
-        if ((_MISSION_activeResearch select 0) == _techId) exitWith {false};
+        if ((MISSION_activeResearch select 0) == _techId) exitWith {false};
     };
     
     // Check all prerequisites
@@ -669,19 +669,25 @@ fnc_updateResearchList = {
     
     // Add each technology to the list
     {
-        _x params ["_techId", "_name"];
+        // Safely extract tech ID and name with error checking
+        private _techId = _x select 0;
+        private _name = _x select 1;
+        
+        if (isNil "_techId") then { _techId = "unknown"; };
+        if (isNil "_name") then { _name = "Unknown Technology"; };
         
         // Determine status indicator
-        private _status = if (_techId in MISSION_completedResearch) then {
-            "✓" // Completed
+        private _status = "";
+        if (_techId in MISSION_completedResearch) then {
+            _status = "✓"; // Completed
         } else {
             if (count MISSION_activeResearch > 0 && (MISSION_activeResearch select 0) == _techId) then {
-                "⟳" // In progress
+                _status = "⟳"; // In progress
             } else {
                 if ([_techId] call fnc_isTechAvailable) then {
-                    "◯" // Available
+                    _status = "◯"; // Available
                 } else {
-                    "✗" // Not available
+                    _status = "✗"; // Not available
                 };
             };
         };
@@ -691,11 +697,12 @@ fnc_updateResearchList = {
         _researchArea lbSetData [_index, _techId];
         
         // Set text color based on status
-        private _color = switch (_status) do {
-            case "✓": {[0.4, 0.8, 0.4, 1]}; // Green for completed
-            case "⟳": {[0.8, 0.8, 0.2, 1]}; // Yellow for in progress
-            case "◯": {[1, 1, 1, 1]};       // White for available
-            default {[0.5, 0.5, 0.5, 1]};    // Gray for unavailable
+        private _color = [1, 1, 1, 1]; // Default white
+        switch (_status) do {
+            case "✓": { _color = [0.4, 0.8, 0.4, 1]; }; // Green for completed
+            case "⟳": { _color = [0.8, 0.8, 0.2, 1]; }; // Yellow for in progress
+            case "◯": { _color = [1, 1, 1, 1]; };       // White for available
+            case "✗": { _color = [0.5, 0.5, 0.5, 1]; }; // Gray for unavailable
         };
         
         _researchArea lbSetColor [_index, _color];
@@ -724,21 +731,40 @@ fnc_updateDetailsPanel = {
     
     private _techData = MISSION_researchTree select _techIndex;
     
-    _techData params ["", "_name", "_category", "_iconPath", "_description", "_cost", "_time", "_prerequisites", "_type", "_effect", "_resources", "_constructionTime", "_quantity"];
+    // Safely extract parameters with default values
+    private _name = _techData param [1, "Unknown"];
+    private _category = _techData param [2, "Misc"];
+    private _iconPath = _techData param [3, ""];
+    private _description = _techData param [4, "No description available."];
+    private _cost = _techData param [5, 100];
+    private _time = _techData param [6, 60];
+    private _prerequisites = _techData param [7, []];
+    private _type = _techData param [8, "technology"];
+    private _effect = _techData param [9, ""];
+    private _resources = _techData param [10, []];
+    private _constructionTime = _techData param [11, 30];
+    private _quantity = _techData param [12, 0];
     
     // Format prerequisites text
     private _prereqsText = "";
     if (count _prerequisites > 0) then {
         private _prereqNames = [];
         {
-            private _prereqIndex = MISSION_researchTree findIf {(_x select 0) == _x};
+            private _prereqId = _x;
+            private _prereqIndex = MISSION_researchTree findIf {(_x select 0) == _prereqId};
             if (_prereqIndex != -1) then {
                 private _prereqName = (MISSION_researchTree select _prereqIndex) select 1;
-                _prereqNames pushBack _prereqName;
+                if (!isNil "_prereqName") then {
+                    _prereqNames pushBack _prereqName;
+                };
             };
         } forEach _prerequisites;
         
-        _prereqsText = "Prerequisites: " + (_prereqNames joinString ", ");
+        if (count _prereqNames > 0) then {
+            _prereqsText = "Prerequisites: " + (_prereqNames joinString ", ");
+        } else {
+            _prereqsText = "Prerequisites: Unknown";
+        }
     } else {
         _prereqsText = "No prerequisites";
     };
