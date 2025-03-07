@@ -10,7 +10,8 @@ RTS_menuButtons = [
     ["intelligence", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\map_ca.paa", "Intelligence", "View strategic intelligence and enemy information"],
     ["research", "\a3\ui_f\data\gui\rsc\rscdisplaymain\gradient_ca.paa", "Research", "Research new technologies and equipment"],
     ["construction", "\a3\ui_f\data\gui\rsc\rscdisplayarcademap\icon_toolbox_buildings_ca.paa", "Construction", "Construct buildings and defenses"],
-    ["training", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\face_ca.paa", "Training", "Train and upgrade units"]
+    ["training", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\face_ca.paa", "Training", "Train and upgrade units"],
+    ["procurement", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\cargoput_ca.paa", "Procurement", "Deploy constructed items to the field"]
 ];
 
 // Function to create the menu buttons
@@ -122,13 +123,24 @@ RTS_fnc_createMenuButtons = {
                     systemChat "Intelligence panel not implemented yet";
                 };
                 case "research": {
-                    // Research system
-                    systemChat "Research panel not implemented yet";
+                    // Research system - now uses enhanced research tree UI
+                    if (!isNil "fnc_openResearchUI") then {
+                        [] call fnc_openResearchUI;
+                    } else {
+                        // Fallback to original if new system isn't loaded
+                        systemChat "Enhanced research system not loaded. Using original.";
+                        [] call fnc_openSmallArmsResearchUI;
+                    };
                 };
                 case "construction": {
-                    // Construction system
-                    systemChat "Construction panel not implemented yet";
-                };
+					// Construction system
+					if (!isNil "fnc_openConstructionUI") then {
+						[] call fnc_openConstructionUI;
+					} else {
+						systemChat "Construction system is not loaded yet";
+						hint "Construction system is not loaded yet";
+					};
+				};
                 case "training": {
                     // Call recruitment system
                     if (!isNil "RTS_fnc_recruitOrder") then {
@@ -136,6 +148,15 @@ RTS_fnc_createMenuButtons = {
                     } else {
                         systemChat "Recruitment system is not loaded yet";
                         hint "Recruitment system is not loaded yet";
+                    };
+                };
+                case "procurement": {
+                    // New procurement system
+                    if (!isNil "fnc_openProcurementUI") then {
+                        [] call fnc_openProcurementUI;
+                    } else {
+                        systemChat "Procurement system is not loaded yet";
+                        hint "Procurement system is not loaded yet";
                     };
                 };
             };

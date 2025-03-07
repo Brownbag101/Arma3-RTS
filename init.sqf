@@ -28,6 +28,9 @@ if (hasInterface) then {
 [] execVM "scripts\towCargoGlobals.sqf";
 [] execVM "scripts\cargoSystem.sqf";
 [] execVM "scripts\towSystem.sqf";
+[] execVM "scripts\menu\researchTreeSystem.sqf";
+[] execVM "scripts\menu\procurementSystem.sqf";
+[] execVM "scripts\menu\constructionSystem.sqf";
 
 if (isServer) then {
     [] execVM "zeusUISystem.sqf";
