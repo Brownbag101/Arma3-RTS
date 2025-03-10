@@ -14,6 +14,18 @@ if (isNil "MISSION_constructionUIOpen") then {
     MISSION_constructionUIOpen = false;
 };
 
+// Initialize construction resources if needed
+if (isNil "MISSION_constructionResources") then {
+    MISSION_constructionResources = [];
+    // Copy from economy system if available
+    if (!isNil "RTS_resources") then {
+        {
+            _x params ["_name", "_amount"];
+            MISSION_constructionResources pushBack [_name, _amount];
+        } forEach RTS_resources;
+    };
+};
+
 // Initialize construction options if needed
 if (isNil "MISSION_constructionOptions") then {
     MISSION_constructionOptions = [];
@@ -42,33 +54,37 @@ fnc_getResourceAmount = {
     
     // Try to use the existing economy resource functions first
     if (!isNil "RTS_fnc_getResource") then {
-        private _result = [_resourceName] call RTS_fnc_getResource;
-        if (!isNil "_result") then {
-            _amount = _result;
+        _amount = [_resourceName] call RTS_fnc_getResource;
+        if (!isNil "_amount") then {
+            // Return successful result early
+            _amount
+        } else {
+            // Reset to 0 if result was nil
+            _amount = 0;
         };
     };
     
     // If amount is still 0, check RTS_resources directly
-    if (_amount == 0 && !isNil "RTS_resources") then {
-        for "_i" from 0 to (count RTS_resources - 1) do {
-            private _resource = RTS_resources select _i;
-            if (!isNil "_resource" && {count _resource >= 2}) then {
-                if (toLower(_resource select 0) == _lowerResourceName) then {
-                    _amount = _resource select 1;
+    if (_amount == 0) then {
+        if (!isNil "RTS_resources") then {
+            {
+                _x params ["_resName", "_resAmount"];
+                if (toLower _resName == _lowerResourceName) exitWith {
+                    _amount = _resAmount;
                 };
-            };
+            } forEach RTS_resources;
         };
     };
     
     // Last fallback: check construction resources directly
-    if (_amount == 0 && !isNil "MISSION_constructionResources") then {
-        for "_i" from 0 to (count MISSION_constructionResources - 1) do {
-            private _resource = MISSION_constructionResources select _i;
-            if (!isNil "_resource" && {count _resource >= 2}) then {
-                if (toLower(_resource select 0) == _lowerResourceName) then {
-                    _amount = _resource select 1;
+    if (_amount == 0) then {
+        if (!isNil "MISSION_constructionResources") then {
+            {
+                _x params ["_resName", "_resAmount"];
+                if (toLower _resName == _lowerResourceName) exitWith {
+                    _amount = _resAmount;
                 };
-            };
+            } forEach MISSION_constructionResources;
         };
     };
     
@@ -85,59 +101,55 @@ fnc_modifyResource = {
     
     // Get lowercase resource name for case-insensitive checking
     private _lowerResourceName = toLower _resourceName;
+    private _modified = false;
     
     // Try to use the existing economy resource functions first
-    if (!isNil "RTS_fnc_modifyResource") exitWith {
+    if (!isNil "RTS_fnc_modifyResource") then {
         diag_log format ["Using RTS_fnc_modifyResource to modify %1 by %2", _resourceName, _amount];
-        [_resourceName, _amount] call RTS_fnc_modifyResource;
+        _modified = [_resourceName, _amount] call RTS_fnc_modifyResource;
+        if (_modified) exitWith {};
     };
     
     // Fallback: modify RTS_resources directly
-    if (!isNil "RTS_resources") then {
-        for "_i" from 0 to (count RTS_resources - 1) do {
-            private _resource = RTS_resources select _i;
-            if (!isNil "_resource" && {count _resource >= 2}) then {
-                if (toLower(_resource select 0) == _lowerResourceName) exitWith {
-                    private _currentAmount = _resource select 1;
-                    private _newAmount = _currentAmount + _amount;
-                    
-                    // Ensure resource doesn't go below zero
-                    if (_newAmount < 0) then {
-                        _newAmount = 0;
-                    };
-                    
-                    RTS_resources set [_i, [_resource select 0, _newAmount]];
-                    diag_log format ["Modified %1 in RTS_resources: %2 -> %3", _resourceName, _currentAmount, _newAmount];
-                    true
-                };
+    if (!_modified && !isNil "RTS_resources") then {
+        {
+            _x params ["_resName", "_resAmount"];
+            if (toLower _resName == _lowerResourceName) exitWith {
+                private _newAmount = _resAmount + _amount;
+                
+                // Ensure resource doesn't go below zero
+                if (_newAmount < 0) then { _newAmount = 0; };
+                
+                RTS_resources set [_forEachIndex, [_resName, _newAmount]];
+                diag_log format ["Modified %1 in RTS_resources: %2 -> %3", _resourceName, _resAmount, _newAmount];
+                _modified = true;
             };
-        };
-    } 
+        } forEach RTS_resources;
+    };
+    
     // Last fallback: modify construction resources directly
-    else if (!isNil "MISSION_constructionResources") then {
-        for "_i" from 0 to (count MISSION_constructionResources - 1) do {
-            private _resource = MISSION_constructionResources select _i;
-            if (!isNil "_resource" && {count _resource >= 2}) then {
-                if (toLower(_resource select 0) == _lowerResourceName) exitWith {
-                    private _currentAmount = _resource select 1;
-                    private _newAmount = _currentAmount + _amount;
-                    
-                    // Ensure resource doesn't go below zero
-                    if (_newAmount < 0) then {
-                        _newAmount = 0;
-                    };
-                    
-                    MISSION_constructionResources set [_i, [_resource select 0, _newAmount]];
-                    diag_log format ["Modified %1 in MISSION_constructionResources: %2 -> %3", _resourceName, _currentAmount, _newAmount];
-                    true
-                };
+    if (!_modified && !isNil "MISSION_constructionResources") then {
+        {
+            _x params ["_resName", "_resAmount"];
+            if (toLower _resName == _lowerResourceName) exitWith {
+                private _newAmount = _resAmount + _amount;
+                
+                // Ensure resource doesn't go below zero
+                if (_newAmount < 0) then { _newAmount = 0; };
+                
+                MISSION_constructionResources set [_forEachIndex, [_resName, _newAmount]];
+                diag_log format ["Modified %1 in MISSION_constructionResources: %2 -> %3", _resourceName, _resAmount, _newAmount];
+                _modified = true;
             };
-        };
+        } forEach MISSION_constructionResources;
     };
     
     // Resource not found in any system
-    diag_log format ["Warning: Resource %1 not found in any resource system", _resourceName];
-    false
+    if (!_modified) then {
+        diag_log format ["Warning: Resource %1 not found in any resource system", _resourceName];
+    };
+    
+    _modified
 };
 
 // Function to open the Construction UI
@@ -149,6 +161,21 @@ fnc_openConstructionUI = {
     
     if (isNull _display) exitWith {
         diag_log "Failed to create Construction UI";
+        systemChat "Error: Could not create construction interface";
+        false
+    };
+    
+    // Update MISSION_constructionResources from RTS_resources for synchronization
+    if (!isNil "RTS_resources") then {
+        // Clear old resources
+        MISSION_constructionResources = [];
+        // Copy fresh values
+        {
+            if (count _x >= 2) then {
+                _x params ["_name", "_value"];
+                MISSION_constructionResources pushBack [_name, _value];
+            };
+        } forEach RTS_resources;
     };
     
     // Set flag
@@ -447,20 +474,28 @@ fnc_updateDetailsPanel = {
     private _canBuild = true;
     private _debugInfo = "";
     
-    {
-        _x params ["_resourceName", "_amount"];
-        private _available = [_resourceName] call fnc_getResourceAmount;
-        
-        // Debug information
-        _debugInfo = _debugInfo + format ["%1: need %2, have %3 | ", _resourceName, _amount, _available];
-        
-        private _color = if (_available >= _amount) then {"#AAAAAA"} else {"#FF5555"};
-        _resourcesText = _resourcesText + format ["<t color='%3'>%1: %2</t><br/>", _resourceName, _amount, _color];
-        
-        if (_available < _amount) then {
-            _canBuild = false;
-        };
-    } forEach _resources;
+    if (!isNil "_resources") then {
+        {
+            if (count _x >= 2) then {
+                _x params ["_resourceName", "_amount"];
+                private _available = [_resourceName] call fnc_getResourceAmount;
+                
+                // Debug information
+                _debugInfo = _debugInfo + format ["%1: need %2, have %3 | ", _resourceName, _amount, _available];
+                
+                private _color = if (_available >= _amount) then {"#AAAAAA"} else {"#FF5555"};
+                _resourcesText = _resourcesText + format ["<t color='%3'>%1: %2</t><br/>", _resourceName, _amount, _color];
+                
+                if (_available < _amount) then {
+                    _canBuild = false;
+                };
+            };
+        } forEach _resources;
+    } else {
+        _resourcesText = "<t color='#FF5555'>Resource data missing!</t><br/>";
+        _canBuild = false;
+        diag_log "Warning: Resources data is nil in updateDetailsPanel";
+    };
     
     // Format details string
     private _detailsString = format [
@@ -589,8 +624,11 @@ fnc_addToConstructionQueue = {
 // Function to update resources display
 fnc_updateResourcesDisplay = {
     private _display = findDisplay -1;
-    private _resourcesText = _display displayCtrl 1700;
+    if (isNull _display) exitWith {
+        diag_log "Error: Display not found for resource update";
+    };
     
+    private _resourcesText = _display displayCtrl 1700;
     if (isNull _resourcesText) exitWith {
         diag_log "Error: Resource text control not found";
     };
@@ -600,30 +638,33 @@ fnc_updateResourcesDisplay = {
     
     // Try RTS economy system first
     if (!isNil "RTS_resources") then {
-        // Use safer alternative to FOR-EACH loops
-        for "_i" from 0 to (count RTS_resources - 1) do {
-            private _resource = RTS_resources select _i;
-            if (!isNil "_resource" && {count _resource >= 2}) then {
-                _resourcesArray pushBack format ["%1: %2", _resource select 0, floor(_resource select 1)];
+        {
+            if (count _x >= 2) then {
+                _x params ["_name", "_value"];
+                _resourcesArray pushBack format ["%1: %2", _name, floor _value];
             };
-        };
+        } forEach RTS_resources;
     } 
-    // Fall back to construction resources
-    else if (!isNil "MISSION_constructionResources") then {
-        for "_i" from 0 to (count MISSION_constructionResources - 1) do {
-            private _resource = MISSION_constructionResources select _i;
-            if (!isNil "_resource" && {count _resource >= 2}) then {
-                _resourcesArray pushBack format ["%1: %2", _resource select 0, floor(_resource select 1)];
+    // Fall back to construction resources if RTS_resources is empty or not found
+    else if (!isNil "MISSION_constructionResources" && {count MISSION_constructionResources > 0}) then {
+        {
+            if (count _x >= 2) then {
+                _x params ["_name", "_value"];
+                _resourcesArray pushBack format ["%1: %2", _name, floor _value];
             };
-        };
+        } forEach MISSION_constructionResources;
     }
     // If no resource system found
     else {
         _resourcesArray = ["No resource system found"];
     };
     
-    // Update text
-    _resourcesText ctrlSetText (_resourcesArray joinString " | ");
+    // Update text with safety check
+    if (count _resourcesArray > 0) then {
+        _resourcesText ctrlSetText (_resourcesArray joinString " | ");
+    } else {
+        _resourcesText ctrlSetText "Resources unavailable";
+    };
 };
 
 // Function to update the whole construction UI
