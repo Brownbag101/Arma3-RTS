@@ -172,6 +172,16 @@ if (isNil "MISSION_selectedTask") then {
 // CORE FUNCTIONS
 // =====================================================================
 
+// Background task checking loop
+fnc_taskCheckLoop = {
+    while {true} do {
+        // Check for task completion
+        [] call fnc_checkTasksCompletion;
+        
+        sleep 5;
+    };
+};
+
 // Function to initialize the task system
 fnc_initTaskSystem = {
     // Find any reference objects for locations
@@ -183,8 +193,14 @@ fnc_initTaskSystem = {
     // Add task button to menu if it doesn't exist
     [] call fnc_addTaskMenuItem;
     
-    // Initialize task checking loop
-    [] spawn fnc_taskCheckLoop;
+    // Initialize task checking loop - FIX: Proper spawn syntax
+    [] spawn {
+        while {true} do {
+            // Check for task completion
+            call fnc_checkTasksCompletion;
+            sleep 5;
+        };
+    };
     
     systemChat "Task System initialized!";
     diag_log "Task System initialized!";
@@ -464,11 +480,23 @@ fnc_createTask = {
         format ["%1 - %2", _taskTypeName, _name]      // HUD
     ];
     
+    // Clear any previous tasks from these units
+    {
+        // Get current task for this unit
+        private _currentTask = currentTask _x;
+        if (!isNull _currentTask) then {
+            // Unassign the current task from this unit explicitly
+            [_x] call BIS_fnc_taskCurrent;
+            diag_log format ["Unassigned previous task from %1", name _x];
+        };
+    } forEach _assignedUnits;
+    
     // Create the task - log diagnostics
     diag_log format ["Creating task: %1 at position %2", _taskId, _pos];
     
+    // Create task only for selected units (not whole side)
     private _taskResult = [
-        side player,  // IMPORTANT: Use player's side instead of hardcoded west/independent
+        _assignedUnits,  // Assign ONLY to these units 
         _taskId,
         _taskDescription,
         _pos,
@@ -480,11 +508,23 @@ fnc_createTask = {
     
     diag_log format ["Task creation result: %1", _taskResult];
     
-    // Assign to units - with diagnostic logging
-    {
-        diag_log format ["Assigning task %1 to unit %2", _taskId, name _x];
-        [_x, _taskId] call BIS_fnc_taskAssign;
-    } forEach _assignedUnits;
+    // If task creation failed, exit
+    if (_taskResult isEqualTo "") exitWith {
+        diag_log "Task creation failed";
+        ""
+    };
+    
+    // Set as current task - CORRECTED CALL: Only passing task ID
+    [_taskId] call BIS_fnc_taskSetCurrent;
+    diag_log "Successfully set as current task";
+    
+    // Create visible marker for Zeus instead of using module
+    private _markerName = format ["zeus_task_marker_%1", _taskId];
+    private _marker = createMarker [_markerName, _pos];
+    _marker setMarkerType "mil_objective";
+    _marker setMarkerColor "ColorBlue";
+    _marker setMarkerText _taskTypeName;
+    diag_log format ["Created visible marker for Zeus: %1", _markerName];
     
     // Create task object with all necessary data
     private _taskObject = [
@@ -495,7 +535,8 @@ fnc_createTask = {
         serverTime,              // Creation time
         "CREATED",               // Status
         [],                      // Triggers
-        {}                       // Completion condition code (will be filled below)
+        {},                      // Completion condition code (will be filled below)
+        _markerName              // Store marker name instead of curator module
     ];
     
     // Create completion condition based on task type
@@ -514,7 +555,9 @@ fnc_createTask = {
                 // Task is complete if any assigned unit is within 100m of target
                 private _anyUnitPresent = false;
                 {
-                    if (_x distance _pos < 100) exitWith {
+                    if (!isNull _x && {alive _x} && {_x distance _pos < 100}) exitWith {
+                        systemChat format ["Unit %1 has reached objective area", name _x];
+                        diag_log format ["Task completion triggered by %1 at %2m from objective", name _x, _x distance _pos];
                         _anyUnitPresent = true;
                     };
                 } forEach _assignedUnits;
@@ -535,18 +578,16 @@ fnc_createTask = {
                 _intel >= 100
             };
             
-            // Fix the WEST vs INDEPENDENT issue for triggers
-    private _trig = createTrigger ["EmptyDetector", _pos, false];
-    _trig setTriggerArea [200, 200, 0, false];
-    
-    // Use string conversion of player side for better compatibility
-    private _playerSideStr = str(side player);
-    diag_log format ["Setting trigger activation for side: %1", _playerSideStr];
-    
-    _trig setTriggerActivation [_playerSideStr, "PRESENT", false];
+            // Fix for INDEPENDENT side activation
+            private _trig = createTrigger ["EmptyDetector", _pos, false];
+            _trig setTriggerArea [200, 200, 0, false];
+            
+            // Use exact side of player for better compatibility
+            private _playerSide = side player;
+            _trig setTriggerActivation [str _playerSide, "PRESENT", false];
             _trig setTriggerStatements [
-                "this",
-                format ["[%1, 1] call fnc_modifyLocationIntel;", _locationIndex],
+                "this", 
+                format ["[%1, 1] call fnc_modifyLocationIntel; diag_log 'Intel trigger activated';", _locationIndex],
                 ""
             ];
             
@@ -555,24 +596,24 @@ fnc_createTask = {
         case "patrol": {
             _completionCode = {
                 params ["_taskObj"];
-                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits", "_startTime"];
                 
                 private _locationData = MISSION_LOCATIONS select _locationIndex;
                 private _pos = _locationData select 3;
                 
                 // Patrol is complete after 5 minutes in area
-                private _taskTime = _taskObj select 4;
-                (serverTime - _taskTime) > 300 && 
+                private _timeInArea = serverTime - _startTime;
+                private _anyUnitPresent = false;
+                
                 {
-                    // And at least one unit is still in the area
-                    private _anyUnitPresent = false;
-                    {
-                        if (_x distance _pos < 200) exitWith {
-                            _anyUnitPresent = true;
-                        };
-                    } forEach _assignedUnits;
-                    _anyUnitPresent
-                }
+                    if (!isNull _x && {alive _x} && {_x distance _pos < 200}) exitWith {
+                        _anyUnitPresent = true;
+                    };
+                } forEach _assignedUnits;
+                
+                diag_log format ["Patrol task: %1 time elapsed, unit present: %2", _timeInArea, _anyUnitPresent];
+                
+                (_timeInArea > 300) && _anyUnitPresent
             };
         };
         case "capture": {
@@ -589,10 +630,12 @@ fnc_createTask = {
                 
                 private _friendlyPresent = false;
                 {
-                    if (_x distance _pos < 100) exitWith {
+                    if (!isNull _x && {alive _x} && {_x distance _pos < 100}) exitWith {
                         _friendlyPresent = true;
                     };
                 } forEach _assignedUnits;
+                
+                diag_log format ["Capture task: %1 enemies, friendly present: %2", count _nearEnemies, _friendlyPresent];
                 
                 (count _nearEnemies == 0) && _friendlyPresent
             };
@@ -618,8 +661,8 @@ fnc_createTask = {
             _trig setTriggerArea [50, 50, 0, false];
             _trig setTriggerActivation [str(side player), "PRESENT", false];
             _trig setTriggerStatements [
-                format ["this && ({_x distance thisTrigger < 50} count (allMissionObjects 'TimeBombCore') > 0)", str(side player)],
-                format ["[%1] call fnc_setDestroyedLocation;", _locationIndex],
+                format ["this && ({_x distance thisTrigger < 50} count (allMissionObjects 'TimeBombCore') > 0)"],
+                format ["[%1] call fnc_setDestroyedLocation; diag_log 'Destruction trigger activated';", _locationIndex],
                 ""
             ];
             
@@ -628,17 +671,19 @@ fnc_createTask = {
         case "defend": {
             _completionCode = {
                 params ["_taskObj"];
-                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits", "_startTime"];
                 
                 private _locationData = MISSION_LOCATIONS select _locationIndex;
                 private _pos = _locationData select 3;
                 
                 // Defense is complete after 10 minutes with no enemies in area
-                private _taskTime = _taskObj select 4;
+                private _timeDefending = serverTime - _startTime;
                 private _nearEnemies = _pos nearEntities [["Man", "Car", "Tank"], 300];
                 _nearEnemies = _nearEnemies select {side _x != side player};
                 
-                (serverTime - _taskTime) > 600 && (count _nearEnemies == 0)
+                diag_log format ["Defense task: %1 time elapsed, %2 enemies in area", _timeDefending, count _nearEnemies];
+                
+                (_timeDefending > 600) && (count _nearEnemies == 0)
             };
         };
     };
@@ -661,43 +706,103 @@ fnc_completeTask = {
     params ["_taskId", "_success"];
     
     // Find task in active tasks
-    private _taskIndex = MISSION_activeTasks findIf {(_x select 0) == _taskId};
+    private _taskIndex = MISSION_activeTasks findIf {(count _x > 0) && {(_x select 0) == _taskId}};
     if (_taskIndex == -1) exitWith {
         diag_log format ["Task not found: %1", _taskId];
         false
     };
     
     private _taskObj = MISSION_activeTasks select _taskIndex;
-    _taskObj params ["_id", "_locationIndex", "_taskType", "_assignedUnits"];
+    
+    // Safely extract task data
+    private _locationIndex = -1;
+    private _taskType = "";
+    private _assignedUnits = [];
+    private _markerName = "";
+    
+    if (count _taskObj > 1) then { _locationIndex = _taskObj select 1; };
+    if (count _taskObj > 2) then { _taskType = _taskObj select 2; };
+    if (count _taskObj > 3) then { _assignedUnits = _taskObj select 3; };
+    if (count _taskObj > 8) then { _markerName = _taskObj select 8; };
+    
+    // Handle bad task data
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index in task: %1", _taskId];
+        false
+    };
     
     // Get location data
     private _locationData = MISSION_LOCATIONS select _locationIndex;
-    _locationData params ["_locId", "_name", "_type", "_pos", "_intel", "_availableTasks"];
+    
+    // Safe extraction of location data
+    private _locId = "";
+    private _name = "Unknown Location";
+    private _type = "facility";
+    private _pos = [0,0,0];
+    private _intel = 0;
+    private _availableTasks = [];
+    
+    if (count _locationData > 0) then { _locId = _locationData select 0; };
+    if (count _locationData > 1) then { _name = _locationData select 1; };
+    if (count _locationData > 2) then { _type = _locationData select 2; };
+    if (count _locationData > 3) then { _pos = _locationData select 3; };
+    if (count _locationData > 4) then { _intel = _locationData select 4; };
+    if (count _locationData > 5) then { _availableTasks = _locationData select 5; };
     
     // Update task state
     private _state = if (_success) then {"SUCCEEDED"} else {"FAILED"};
-    [_taskId, _state] call BIS_fnc_taskSetState;
+    
+    // Set task state for assigned units, not the entire side
+    _assignedUnits = _assignedUnits select {!isNull _x && alive _x}; // Clean up invalid units
+    
+    if (count _assignedUnits > 0) then {
+        [_taskId, _state, _assignedUnits] call BIS_fnc_taskSetState;
+    } else {
+        // Fallback to setting task state globally if no units are left
+        [_taskId, _state] call BIS_fnc_taskSetState;
+    };
     
     // If successful, give rewards
     if (_success) then {
+        // Find task type name for messaging
+        private _taskTypeName = _taskType;
+        private _taskTypeIndex = TASK_TYPES findIf {(count _x > 0) && {(_x select 0) == _taskType}};
+        if (_taskTypeIndex != -1 && {count (TASK_TYPES select _taskTypeIndex) > 1}) then {
+            _taskTypeName = (TASK_TYPES select _taskTypeIndex) select 1;
+        };
+        
+        // Clear notification and feedback
+        hint format ["✓ Task Complete: %1 at %2", _taskTypeName, _name];
+        systemChat format ["Task '%1 at %2' completed successfully!", _taskTypeName, _name];
+        
         // Find rewards for this task type
         private _taskReward = [];
+        
         {
-            if (_x select 0 == _taskType) exitWith {
-                _taskReward = _x select 2;
+            if (count _x > 0) then {
+                private _tType = _x select 0;
+                if (_tType == _taskType && count _x > 2) then {
+                    _taskReward = _x select 2;
+                };
             };
         } forEach _availableTasks;
         
-        // Apply rewards
+        // Apply rewards with feedback
         {
-            _x params ["_resourceType", "_amount"];
-            
-            // Use economy system to add resources
-            if (!isNil "RTS_fnc_modifyResource") then {
-                [_resourceType, _amount] call RTS_fnc_modifyResource;
+            if (count _x >= 2) then {
+                private _resourceType = _x select 0;
+                private _amount = _x select 1;
+                
+                // Use economy system to add resources
+                if (!isNil "RTS_fnc_modifyResource") then {
+                    [_resourceType, _amount] call RTS_fnc_modifyResource;
+                    systemChat format ["Received %1 %2 for completing task.", _amount, _resourceType];
+                    diag_log format ["Added resource reward: %1 %2", _amount, _resourceType];
+                } else {
+                    diag_log "WARNING: RTS_fnc_modifyResource is not defined, cannot give rewards";
+                    systemChat format ["Error: Could not add %1 %2 (economy system unavailable)", _amount, _resourceType];
+                };
             };
-            
-            systemChat format ["Received %1 %2 for completing task.", _amount, _resourceType];
         } forEach _taskReward;
         
         // Handle capture/destroy effects
@@ -716,43 +821,133 @@ fnc_completeTask = {
             hint format ["Location destroyed: %1", _name];
             systemChat "Location has been destroyed. Enemy can no longer use it.";
         };
+    } else {
+        // Failed task feedback
+        hint format ["✗ Task Failed: %1 at %2", _taskType, _name];
+        systemChat format ["The operation at %1 has failed!", _name];
     };
     
     // Clean up
+    private _triggers = [];
+    if (count _taskObj > 6) then { _triggers = _taskObj select 6; };
+    
     {
-        deleteVehicle _x;
-    } forEach (_taskObj select 6); // Delete all triggers
+        if (!isNull _x) then {
+            deleteVehicle _x;
+        };
+    } forEach _triggers;
+    
+    // Delete Zeus marker if it exists
+    if (_markerName != "") then {
+        if (markerType _markerName != "") then {
+            deleteMarker _markerName;
+            diag_log format ["Deleted Zeus marker: %1", _markerName];
+        };
+    };
     
     // Remove from active tasks
     MISSION_activeTasks deleteAt _taskIndex;
+    
+    // Log completion
+    diag_log format ["Task %1 completed with result: %2", _taskId, _success];
     
     true
 };
 
 // Function to check task completion
 fnc_checkTasksCompletion = {
+    private _completedTasks = [];
+    
     {
+        // Safely extract task information
         private _taskObj = _x;
-        private _taskId = _taskObj select 0;
-        private _completionCode = _taskObj select 7;
+        private _taskId = "";
+        private _locationIndex = -1;
+        private _taskType = "";
+        private _assignedUnits = [];
+        private _completionCode = {};
         
-        // Check if task is complete
-        private _isComplete = [_taskObj] call _completionCode;
+        // Handle possible missing array elements safely
+        if (count _taskObj > 0) then { _taskId = _taskObj select 0; };
+        if (count _taskObj > 1) then { _locationIndex = _taskObj select 1; };
+        if (count _taskObj > 2) then { _taskType = _taskObj select 2; };
+        if (count _taskObj > 3) then { _assignedUnits = _taskObj select 3; };
+        if (count _taskObj > 7) then { _completionCode = _taskObj select 7; };
         
-        if (_isComplete) then {
-            [_taskId, true] call fnc_completeTask;
+        // Skip if missing critical information
+        if (_taskId == "" || _completionCode isEqualTo {}) then {
+            diag_log format ["Invalid task data: %1", _taskObj];
+            continue;
+        };
+        
+        // Ensure we have valid units (removes any null or dead units)
+        _assignedUnits = _assignedUnits select {!isNull _x && alive _x};
+        
+        // Skip check if all units are gone
+        if (count _assignedUnits == 0) then {
+            diag_log format ["Task %1: All assigned units are dead or null, will fail task", _taskId];
+            _completedTasks pushBack [_taskId, false]; // Mark for failure
+        } else {
+            // Check if any assigned units are near the objective (for move_to debug)
+            if (_taskType == "move_to" && _locationIndex != -1) then {
+                if (_locationIndex < count MISSION_LOCATIONS) then {
+                    private _locationData = MISSION_LOCATIONS select _locationIndex;
+                    if (count _locationData > 3) then {
+                        private _pos = _locationData select 3;
+                        
+                        // Sort units by distance to objective
+                        private _sortedUnits = [_assignedUnits, [], {_x distance _pos}, "ASCEND"] call BIS_fnc_sortBy;
+                        
+                        // Log closest unit for debugging
+                        if (count _sortedUnits > 0) then {
+                            private _unit = _sortedUnits select 0;
+                            private _distance = _unit distance _pos;
+                            if (_distance < 150) then {
+                                diag_log format ["Task %1 (%2): Closest unit %3 is %4m from objective", 
+                                    _taskId, _taskType, name _unit, round _distance];
+                            };
+                        };
+                    };
+                };
+            };
+            
+            // Check if task is complete using its completion criteria - safely
+            private _isComplete = false;
+            
+            private _fnc_safeCall = {
+                params ["_code", "_params", ["_default", false]];
+                private "_result";
+                _result = _default;
+                
+                private _success = false;
+                if (!isNil "_code" && !isNil "_params") then {
+                    _result = _params call _code;
+                    _success = true;
+                };
+                
+                [_success, _result]
+            };
+            
+            private _callResult = [_completionCode, [_taskObj], false] call _fnc_safeCall;
+            
+            if (_callResult select 0) then {
+                _isComplete = _callResult select 1;
+                
+                if (_isComplete) then {
+                    diag_log format ["Task %1 (%2) completion detected!", _taskId, _taskType];
+                    _completedTasks pushBack [_taskId, true]; // Mark for success
+                };
+            } else {
+                diag_log format ["Error in completion code for task %1", _taskId];
+            };
         };
     } forEach MISSION_activeTasks;
-};
-
-// Background task checking loop
-fnc_taskCheckLoop = {
-    while {true} do {
-        // Check for task completion
-        call fnc_checkTasksCompletion;
-        
-        sleep 5;
-    };
+    
+    // Process completed tasks
+    {
+        _x params ["_taskId", "_success"];
+        [_taskId, _success] call fnc_completeTask;
+    } forEach _completedTasks;
 };
 
 // =====================================================================
@@ -820,32 +1015,32 @@ fnc_openTaskUI = {
     _map ctrlCommit 0;
     
     // Enable showing task markers on map
-    _map ctrlAddEventHandler ["Draw", {
-        params ["_control"];
+    //_map ctrlAddEventHandler ["Draw", {
+        //params ["_control"];
         
         // Draw custom markers for tasks on the map
-        {
-            _x params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
-            
-            private _locationData = MISSION_LOCATIONS select _locationIndex;
-            private _pos = _locationData select 3;
-            
-            // Draw task indicator
-            _control drawIcon [
-                "\A3\ui_f\data\map\markers\military\objective_CA.paa",
-                [0, 0.3, 0.6, 1],
-                _pos,
-                24,
-                24,
-                0,
-                "Active Task",
-                1,
-                0.06,
-                "TahomaB",
-                "right"
-            ];
-        } forEach MISSION_activeTasks;
-    }];
+        //{
+        //    _x params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+        //    
+        //    private _locationData = MISSION_LOCATIONS select _locationIndex;
+        //    private _pos = _locationData select 3;
+        //    
+        //    // Draw task indicator
+        //    _control drawIcon [
+        //        "\A3\ui_f\data\map\markers\military\objective_CA.paa",
+        //        [0, 0.3, 0.6, 1],
+        //        _pos,
+        //        24,
+        //        24,
+        //        0,
+        //        "Active Task",
+        //        1,
+        //        0.06,
+        //        "TahomaB",
+        //        "right"
+        //    ];
+        //} forEach MISSION_activeTasks;
+    //}];
     
     // ===== CREATE INFO PANELS =====
     // Create info panel
@@ -1200,7 +1395,7 @@ fnc_confirmTask = {
         hint "Error: No units available for this assignment.";
     };
     
-    // Create the task
+    // Create the task - the function now handles unassigning previous tasks
     private _taskId = [MISSION_selectedLocation, MISSION_selectedTask, _assignedUnits] call fnc_createTask;
     
     if (_taskId != "") then {
@@ -1215,8 +1410,8 @@ fnc_confirmTask = {
         private _taskTypeName = (TASK_TYPES select _taskTypeIndex) select 1;
         
         // Provide feedback
-        hint format ["Task created: %1 at %2", _taskTypeName, _locationName];
-        systemChat format ["New task assigned to %1: %2 the %3 at %4.", 
+        hint format ["New task created: %1 at %2", _taskTypeName, _locationName];
+        systemChat format ["New orders issued to %1: %2 the %3 at %4.", 
             if (_selectedObject isEqualType grpNull) then {groupId _selectedObject} else {name _selectedObject},
             _taskTypeName,
             _locationType,
