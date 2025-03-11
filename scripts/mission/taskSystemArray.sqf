@@ -100,8 +100,8 @@ MISSION_LOCATIONS = [
         "loc_hq_1",                    // ID
         "German Command Post",         // Name
         "hq",                          // Type
-        [2500, 2500, 0],               // Position
-        0,                             // Intel level
+        [1639.65,6888.65,0],               // Position
+        10,                             // Intel level
         [                              // Available tasks
             ["move_to", "Move To", [["intelligence", 10]]],
             ["recon", "Recon", [["intelligence", 50]]],
@@ -798,20 +798,22 @@ fnc_openTaskUI = {
     // Set flag
     MISSION_taskUIOpen = true;
     
-    // Create background - use higher control ID (9000+) to ensure it's on top and MOVE UP to clear bottom menus
+    // ===== CREATE BACKGROUND PANELS =====
+    // Create background - use higher control ID (9000+) to ensure it's on top
     private _background = _display ctrlCreate ["RscText", 9000];
     _background ctrlSetPosition [0.1 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.8 * safezoneW, 0.75 * safezoneH];
     _background ctrlSetBackgroundColor [0, 0, 0, 0.8];
     _background ctrlCommit 0;
     
-    // Create title - using high control IDs for proper layering - MOVE UP
+    // Create title
     private _title = _display ctrlCreate ["RscText", 9001];
     _title ctrlSetPosition [0.1 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.8 * safezoneW, 0.05 * safezoneH];
     _title ctrlSetText "Operations Command";
     _title ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
     _title ctrlCommit 0;
     
-    // Create map control - use high control ID - MOVE UP
+    // ===== CREATE MAP CONTROL =====
+    // Create map control
     private _map = _display ctrlCreate ["RscMapControl", 9002];
     _map ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.12 * safezoneH + safezoneY, 0.5 * safezoneW, 0.6 * safezoneH];
     _map ctrlSetBackgroundColor [0.969, 0.957, 0.949, 1.0];
@@ -845,52 +847,55 @@ fnc_openTaskUI = {
         } forEach MISSION_activeTasks;
     }];
     
-    // Create info panel - use high control ID - MOVE UP
+    // ===== CREATE INFO PANELS =====
+    // Create info panel
     private _infoPanel = _display ctrlCreate ["RscText", 9100];
     _infoPanel ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.12 * safezoneH + safezoneY, 0.25 * safezoneW, 0.3 * safezoneH];
     _infoPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _infoPanel ctrlCommit 0;
     
-    // Create location info title - use high control ID - MOVE UP
+    // Create location info title
     private _infoTitle = _display ctrlCreate ["RscText", 9101];
     _infoTitle ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.12 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
     _infoTitle ctrlSetText "Location Information";
     _infoTitle ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
     _infoTitle ctrlCommit 0;
     
-    // Create intel bar background - use high control ID - MOVE UP
+    // Create intel bar background
     private _intelBarBg = _display ctrlCreate ["RscText", 9102];
     _intelBarBg ctrlSetPosition [0.64 * safezoneW + safezoneX, 0.17 * safezoneH + safezoneY, 0.23 * safezoneW, 0.02 * safezoneH];
     _intelBarBg ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
     _intelBarBg ctrlCommit 0;
     
-    // Create intel bar - use high control ID - MOVE UP
+    // Create intel bar
     private _intelBar = _display ctrlCreate ["RscProgress", 9103];
     _intelBar ctrlSetPosition [0.64 * safezoneW + safezoneX, 0.17 * safezoneH + safezoneY, 0.23 * safezoneW, 0.02 * safezoneH];
     _intelBar progressSetPosition 0;
     _intelBar ctrlSetTextColor [0.2, 0.6, 1, 1];
     _intelBar ctrlCommit 0;
     
-    // Create location info text - use high control ID - MOVE UP
+    // Create location info text
     private _infoText = _display ctrlCreate ["RscStructuredText", 9104];
     _infoText ctrlSetPosition [0.64 * safezoneW + safezoneX, 0.2 * safezoneH + safezoneY, 0.23 * safezoneW, 0.21 * safezoneH];
     _infoText ctrlSetStructuredText parseText "Select a location on the map.";
     _infoText ctrlCommit 0;
     
-    // Create task panel - use high control ID - MOVE UP
+    // ===== CREATE TASK PANEL =====
+    // Create task panel
     private _taskPanel = _display ctrlCreate ["RscText", 9200];
-    _taskPanel ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.25 * safezoneW, 0.3 * safezoneH];
+    _taskPanel ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.25 * safezoneW, 0.35 * safezoneH]; // Increased height
     _taskPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _taskPanel ctrlCommit 0;
     
-    // Create task panel title - use high control ID - MOVE UP
+    // Create task panel title
     private _taskTitle = _display ctrlCreate ["RscText", 9201];
     _taskTitle ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
     _taskTitle ctrlSetText "Available Tasks";
     _taskTitle ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
     _taskTitle ctrlCommit 0;
     
-    // Create task buttons - MOVE UP
+    // ===== CREATE TASK BUTTONS =====
+    // Create task buttons
     private _buttonHeight = 0.04 * safezoneH;
     private _buttonMargin = 0.01 * safezoneH;
     private _buttonY = 0.47 * safezoneH + safezoneY;
@@ -913,38 +918,41 @@ fnc_openTaskUI = {
         _button ctrlCommit 0;
     } forEach TASK_TYPES;
     
-    // Create unit selection panel - use high control ID - MOVE UP
+    // ===== CREATE UNIT SELECTION PANEL =====
+    // Create unit selection panel - MOVED UP to avoid overlap
     private _unitPanel = _display ctrlCreate ["RscText", 9400];
     _unitPanel ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.73 * safezoneH + safezoneY, 0.5 * safezoneW, 0.05 * safezoneH];
     _unitPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _unitPanel ctrlCommit 0;
     
-    // Create unit selection combo box - use high control ID - MOVE UP
+    // Create unit selection combo box
     private _unitCombo = _display ctrlCreate ["RscCombo", 9401];
     _unitCombo ctrlSetPosition [0.13 * safezoneW + safezoneX, 0.735 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
     
-    // Add available units/groups
+    // Add available units/groups - function will populate it
     [] call fnc_populateUnitCombo;
     
     _unitCombo ctrlCommit 0;
     
-    // Create confirm button - use high control ID - MOVE UP
+    // ===== CREATE CONTROL BUTTONS =====
+    // Create confirm button - FIXED POSITION AND SIZE
     private _confirmButton = _display ctrlCreate ["RscButton", 9500];
-    _confirmButton ctrlSetPosition [0.76 * safezoneW + safezoneX, 0.74 * safezoneH + safezoneY, 0.12 * safezoneW, 0.05 * safezoneH];
+    _confirmButton ctrlSetPosition [0.50 * safezoneW + safezoneX, 0.73 * safezoneH + safezoneY, 0.10 * safezoneW, 0.04 * safezoneH]; 
     _confirmButton ctrlSetText "Confirm Task";
     _confirmButton ctrlSetBackgroundColor [0.2, 0.6, 0.2, 1];
     _confirmButton ctrlEnable false;
     _confirmButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_confirmTask"];
     _confirmButton ctrlCommit 0;
     
-    // Create cancel button - use high control ID - MOVE UP
+    // Create cancel button - SMALLER SIZE
     private _cancelButton = _display ctrlCreate ["RscButton", 9501];
-    _cancelButton ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.74 * safezoneH + safezoneY, 0.12 * safezoneW, 0.05 * safezoneH];
+    _cancelButton ctrlSetPosition [0.40 * safezoneW + safezoneX, 0.73 * safezoneH + safezoneY, 0.10 * safezoneW, 0.04 * safezoneH]; // Smaller width
     _cancelButton ctrlSetText "Close";
     _cancelButton ctrlSetBackgroundColor [0.6, 0.2, 0.2, 1];
     _cancelButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
     _cancelButton ctrlCommit 0;
     
+    // ===== MAP INTERACTION =====
     // Add map click handler
     _map ctrlAddEventHandler ["MouseButtonClick", {
         params ["_control", "_button", "_xPos", "_yPos", "_shift", "_ctrl", "_alt"];
@@ -972,6 +980,7 @@ fnc_openTaskUI = {
         };
     }];
     
+    // ===== DIALOG CLOSURE =====
     // Add handler for dialog closure
     _display displayAddEventHandler ["Unload", {
         MISSION_taskUIOpen = false;
@@ -1001,12 +1010,20 @@ fnc_populateUnitCombo = {
     // Add local player group
     private _playerGroup = group player;
     private _index = _unitCombo lbAdd format ["%1 (%2 members)", groupId _playerGroup, count units _playerGroup];
-    _unitCombo lbSetData [_index, str _playerGroup];
+    
+    // Store the group as a variable name that can be retrieved later
+    private _varName = format ["TASK_GROUP_%1", groupId _playerGroup];
+    missionNamespace setVariable [_varName, _playerGroup];
+    _unitCombo lbSetData [_index, _varName];
     
     // Add individual units from player's group
     {
         private _unitIndex = _unitCombo lbAdd format ["  - %1 (%2)", name _x, getText (configFile >> "CfgVehicles" >> typeOf _x >> "displayName")];
-        _unitCombo lbSetData [_unitIndex, str _x];
+        
+        // Store the unit as a variable name
+        private _unitVarName = format ["TASK_UNIT_%1_%2", groupId (group _x), name _x];
+        missionNamespace setVariable [_unitVarName, _x];
+        _unitCombo lbSetData [_unitIndex, _unitVarName];
     } forEach units _playerGroup;
     
     // Get any other player-side groups
@@ -1017,16 +1034,25 @@ fnc_populateUnitCombo = {
         
         // Skip player's own group (already added)
         if (_group != _playerGroup) then {
+            private _grpVarName = format ["TASK_GROUP_%1", groupId _group];
+            missionNamespace setVariable [_grpVarName, _group];
+            
             private _groupIndex = _unitCombo lbAdd format ["%1 (%2 members)", groupId _group, count units _group];
-            _unitCombo lbSetData [_groupIndex, str _group];
+            _unitCombo lbSetData [_groupIndex, _grpVarName];
             
             // Add individual units
             {
                 private _unitIndex = _unitCombo lbAdd format ["  - %1 (%2)", name _x, getText (configFile >> "CfgVehicles" >> typeOf _x >> "displayName")];
-                _unitCombo lbSetData [_unitIndex, str _x];
+                
+                private _unitVarName = format ["TASK_UNIT_%1_%2", groupId (group _x), name _x];
+                missionNamespace setVariable [_unitVarName, _x];
+                _unitCombo lbSetData [_unitIndex, _unitVarName];
             } forEach units _group;
         };
     } forEach _allGroups;
+    
+    // Log for debugging
+    diag_log format ["Populated unit combo with %1 entries", lbSize _unitCombo];
     
     // Select first item by default
     if (lbSize _unitCombo > 0) then {
@@ -1073,10 +1099,10 @@ fnc_selectLocation = {
         _briefing
     ];
     
-    // Update available tasks
+    // Update available tasks - FIXED to use correct control IDs
     {
         _x params ["_taskId", "_taskName", "_requiredIntel"];
-        private _button = _display displayCtrl (1300 + _forEachIndex);
+        private _button = _display displayCtrl (9300 + _forEachIndex);
         
         // Enable button if:
         // 1. We have enough intel
@@ -1115,7 +1141,7 @@ fnc_selectTask = {
     // Update selected task
     MISSION_selectedTask = _taskType;
     
-    // Update task buttons
+    // Update task buttons - FIXED control IDs
     {
         _x params ["_taskId", "_taskName", "_requiredIntel"];
         private _button = _display displayCtrl (9300 + _forEachIndex);
@@ -1137,29 +1163,41 @@ fnc_confirmTask = {
     private _display = findDisplay -1;
     
     // Get selected unit(s)
-    private _unitCombo = _display displayCtrl 1401;
+    private _unitCombo = _display displayCtrl 9401;
     private _selIndex = lbCurSel _unitCombo;
     
     if (_selIndex == -1) exitWith {
         hint "No unit selected for task assignment.";
     };
     
-    private _dataStr = _unitCombo lbData _selIndex;
+    private _varName = _unitCombo lbData _selIndex;
     private _assignedUnits = [];
     
-    // Convert data string to actual object or group
-    private _selectedObject = call compile _dataStr;
+    // Debug info
+    diag_log format ["Selected variable name: %1", _varName];
     
-    if (isNil "_selectedObject") exitWith {
-        hint "Error: Could not resolve selected unit.";
+    // Get the stored object or group from the variable
+    private _selectedObject = missionNamespace getVariable [_varName, objNull];
+    
+    diag_log format ["Selected object: %1 (type: %2)", _selectedObject, typeName _selectedObject];
+    
+    if (isNull _selectedObject) exitWith {
+        hint format ["Error: Could not find unit or group: %1", _varName];
     };
     
     // If group was selected, assign to all units in group
     if (_selectedObject isEqualType grpNull) then {
         _assignedUnits = units _selectedObject;
+        diag_log format ["Group selected with %1 units", count _assignedUnits];
     } else {
         // Single unit selected
         _assignedUnits = [_selectedObject];
+        diag_log format ["Single unit selected: %1", name _selectedObject];
+    };
+    
+    // Check for empty assigned units
+    if (count _assignedUnits == 0) exitWith {
+        hint "Error: No units available for this assignment.";
     };
     
     // Create the task
