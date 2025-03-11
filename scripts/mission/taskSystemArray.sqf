@@ -446,7 +446,7 @@ fnc_setDestroyedLocation = {
 };
 
 // =====================================================================
-// TASK CREATION AND MANAGEMENT
+// TASK CREATION AND MANAGEMENT CORE FUNCTIONS
 // =====================================================================
 
 // Function to create a task
@@ -514,17 +514,46 @@ fnc_createTask = {
         ""
     };
     
-    // Set as current task - CORRECTED CALL: Only passing task ID
+    // Set as current task
     [_taskId] call BIS_fnc_taskSetCurrent;
     diag_log "Successfully set as current task";
     
-    // Create visible marker for Zeus instead of using module
+    // Create visible marker for Zeus
     private _markerName = format ["zeus_task_marker_%1", _taskId];
     private _marker = createMarker [_markerName, _pos];
     _marker setMarkerType "mil_objective";
     _marker setMarkerColor "ColorBlue";
     _marker setMarkerText _taskTypeName;
     diag_log format ["Created visible marker for Zeus: %1", _markerName];
+    
+    // Add Zeus curator icon for z1
+    private _curatorModule = missionNamespace getVariable ["z1", objNull];
+    private _taskIcon = "";
+    
+    // Select appropriate icon based on task type
+    switch (_taskType) do {
+        case "move_to": { _taskIcon = "\A3\ui_f\data\map\markers\military\flag_ca.paa"; };
+        case "recon": { _taskIcon = "\A3\ui_f\data\map\markers\military\recon_ca.paa"; };
+        case "patrol": { _taskIcon = "\A3\ui_f\data\map\markers\military\circle_ca.paa"; };
+        case "capture": { _taskIcon = "\A3\ui_f\data\map\markers\military\end_ca.paa"; };
+        case "destroy": { _taskIcon = "\A3\ui_f\data\map\markers\military\destroy_ca.paa"; };
+        case "defend": { _taskIcon = "\A3\ui_f\data\map\markers\military\flag_ca.paa"; };
+        default { _taskIcon = "\A3\ui_f\data\map\markers\military\objective_ca.paa"; };
+    };
+    
+    // Store icon ID for later removal
+    private _iconID = -1;
+    
+    // Add curator icon if module exists
+    if (!isNull _curatorModule) then {
+        _iconID = [_curatorModule, [_taskIcon, [0, 0.3, 0.6, 1], _pos, 1, 1, 0, _taskTypeName, 1, 0.05, "TahomaB"], false] call BIS_fnc_addCuratorIcon;
+        diag_log format ["Created Zeus curator icon for task %1 with ID: %2", _taskId, _iconID];
+    } else {
+        diag_log "Warning: Could not find Zeus module 'z1' for curator icon";
+    };
+    
+    // Store icon ID in task object for later removal
+    private _iconData = [_curatorModule, _iconID];
     
     // Create task object with all necessary data
     private _taskObject = [
@@ -536,7 +565,8 @@ fnc_createTask = {
         "CREATED",               // Status
         [],                      // Triggers
         {},                      // Completion condition code (will be filled below)
-        _markerName              // Store marker name instead of curator module
+        _markerName,             // Store marker name for cleanup
+        _iconData                // Store curator icon data [module, iconID]
     ];
     
     // Create completion condition based on task type
@@ -574,24 +604,45 @@ fnc_createTask = {
                 private _pos = _locationData select 3;
                 private _intel = _locationData select 4;
                 
+                // For debugging
+                diag_log format ["Checking recon task completion: Location %1, Current intel: %2/100", _locationIndex, _intel];
+                
+                // Increase intel if unit is in the area
+                private _unitInArea = false;
+                {
+                    if (!isNull _x && {alive _x} && {_x distance _pos < 200}) exitWith {
+                        _unitInArea = true;
+                    };
+                } forEach _assignedUnits;
+                
+                if (_unitInArea && random 1 > 0.7) then { // 30% chance per check when unit is present
+                    [_locationIndex, 1] call fnc_modifyLocationIntel;
+                    diag_log format ["Unit present in recon area, intel increased to %1", 
+                        (MISSION_LOCATIONS select _locationIndex) select 4];
+                };
+                
                 // Task complete when intel reaches 100%
                 _intel >= 100
             };
             
-            // Fix for INDEPENDENT side activation
-            private _trig = createTrigger ["EmptyDetector", _pos, false];
-            _trig setTriggerArea [200, 200, 0, false];
+            // Create better intel trigger using the new function
+            private _trig = [_locationIndex, _pos] call fnc_setupReconTrigger;
+            _triggers pushBack _trig;
+            
+            // Also add the original trigger for backward compatibility
+            private _oldTrig = createTrigger ["EmptyDetector", _pos, false];
+            _oldTrig setTriggerArea [200, 200, 0, false];
             
             // Use exact side of player for better compatibility
             private _playerSide = side player;
-            _trig setTriggerActivation [str _playerSide, "PRESENT", false];
-            _trig setTriggerStatements [
+            _oldTrig setTriggerActivation [str _playerSide, "PRESENT", false];
+            _oldTrig setTriggerStatements [
                 "this", 
                 format ["[%1, 1] call fnc_modifyLocationIntel; diag_log 'Intel trigger activated';", _locationIndex],
                 ""
             ];
             
-            _triggers pushBack _trig;
+            _triggers pushBack _oldTrig;
         };
         case "patrol": {
             _completionCode = {
@@ -637,8 +688,40 @@ fnc_createTask = {
                 
                 diag_log format ["Capture task: %1 enemies, friendly present: %2", count _nearEnemies, _friendlyPresent];
                 
+                // Add some debug visuals for easier testing
+                if (_friendlyPresent && count _nearEnemies == 0) then {
+                    if (isServer) then {
+                        diag_log "Capture conditions met!";
+                        
+                        // Create a visual indicator for debugging
+                        if (isNil "CAPTURE_DEBUG_MARKER") then {
+                            CAPTURE_DEBUG_MARKER = createMarker ["capture_debug", _pos];
+                            CAPTURE_DEBUG_MARKER setMarkerType "hd_objective";
+                            CAPTURE_DEBUG_MARKER setMarkerColor "ColorGreen";
+                            CAPTURE_DEBUG_MARKER setMarkerText "CAPTURE READY";
+                        };
+                    };
+                };
+                
                 (count _nearEnemies == 0) && _friendlyPresent
             };
+            
+            // Add trigger to help with capture process (clear area of enemies)
+            private _captureTrig = createTrigger ["EmptyDetector", _pos, false];
+            _captureTrig setTriggerArea [200, 200, 0, false];
+            _captureTrig setTriggerActivation [str(side player), "PRESENT", false];
+            _captureTrig setTriggerStatements [
+                "this && {({side _x != side player && alive _x} count thisList) == 0}",
+                format ["
+                    if (isServer) then {
+                        systemChat 'Area secured. Hold position to capture.';
+                        hint 'Area secured. Hold position to capture.';
+                    };
+                "],
+                ""
+            ];
+            
+            _triggers pushBack _captureTrig;
         };
         case "destroy": {
             _completionCode = {
@@ -661,7 +744,7 @@ fnc_createTask = {
             _trig setTriggerArea [50, 50, 0, false];
             _trig setTriggerActivation [str(side player), "PRESENT", false];
             _trig setTriggerStatements [
-                format ["this && ({_x distance thisTrigger < 50} count (allMissionObjects 'TimeBombCore') > 0)"],
+                "this && {({_x distance thisTrigger < 50} count (allMissionObjects 'TimeBombCore') > 0)}",
                 format ["[%1] call fnc_setDestroyedLocation; diag_log 'Destruction trigger activated';", _locationIndex],
                 ""
             ];
@@ -719,11 +802,13 @@ fnc_completeTask = {
     private _taskType = "";
     private _assignedUnits = [];
     private _markerName = "";
+    private _iconData = [objNull, -1];
     
     if (count _taskObj > 1) then { _locationIndex = _taskObj select 1; };
     if (count _taskObj > 2) then { _taskType = _taskObj select 2; };
     if (count _taskObj > 3) then { _assignedUnits = _taskObj select 3; };
     if (count _taskObj > 8) then { _markerName = _taskObj select 8; };
+    if (count _taskObj > 9) then { _iconData = _taskObj select 9; };
     
     // Handle bad task data
     if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
@@ -778,11 +863,20 @@ fnc_completeTask = {
         // Find rewards for this task type
         private _taskReward = [];
         
+        // Enhanced debug logging for task rewards
+        diag_log format ["Looking for rewards for task type: %1", _taskType];
+        diag_log format ["Available tasks at location: %1", _availableTasks];
+        
         {
             if (count _x > 0) then {
-                private _tType = _x select 0;
+                private _tType = "";
+                if (count _x > 0) then { _tType = _x select 0; };
+                
+                diag_log format ["Checking task type: %1 against %2", _tType, _taskType];
+                
                 if (_tType == _taskType && count _x > 2) then {
                     _taskReward = _x select 2;
+                    diag_log format ["Found matching reward: %1", _taskReward];
                 };
             };
         } forEach _availableTasks;
@@ -795,6 +889,16 @@ fnc_completeTask = {
                 
                 // Use economy system to add resources
                 if (!isNil "RTS_fnc_modifyResource") then {
+                    // Ensure amount is a number
+                    if (typeName _amount != "SCALAR") then {
+                        _amount = parseNumber str _amount;
+                    };
+                    
+                    // Debug information
+                    diag_log format ["Applying reward: Resource: %1, Amount: %2, TypeName: %3", 
+                        _resourceType, _amount, typeName _amount];
+                    
+                    // Apply reward
                     [_resourceType, _amount] call RTS_fnc_modifyResource;
                     systemChat format ["Received %1 %2 for completing task.", _amount, _resourceType];
                     diag_log format ["Added resource reward: %1 %2", _amount, _resourceType];
@@ -802,6 +906,8 @@ fnc_completeTask = {
                     diag_log "WARNING: RTS_fnc_modifyResource is not defined, cannot give rewards";
                     systemChat format ["Error: Could not add %1 %2 (economy system unavailable)", _amount, _resourceType];
                 };
+            } else {
+                diag_log format ["Invalid reward format: %1", _x];
             };
         } forEach _taskReward;
         
@@ -842,6 +948,16 @@ fnc_completeTask = {
         if (markerType _markerName != "") then {
             deleteMarker _markerName;
             diag_log format ["Deleted Zeus marker: %1", _markerName];
+        };
+    };
+    
+    // Remove Zeus curator icon if it exists
+    if (!isNil "_iconData" && {count _iconData >= 2}) then {
+        _iconData params ["_curatorModule", "_iconID"];
+        
+        if (!isNull _curatorModule && _iconID != -1) then {
+            [_curatorModule, _iconID] call BIS_fnc_removeCuratorIcon;
+            diag_log format ["Removed Zeus curator icon ID: %1", _iconID];
         };
     };
     
@@ -948,6 +1064,144 @@ fnc_checkTasksCompletion = {
         _x params ["_taskId", "_success"];
         [_taskId, _success] call fnc_completeTask;
     } forEach _completedTasks;
+};
+
+// =====================================================================
+// CORE INITIALIZATION FUNCTION
+// =====================================================================
+
+// Function to initialize the task system
+fnc_initTaskSystem = {
+    // Find any reference objects for locations
+    [] call fnc_findReferenceObjects;
+    
+    // Create map markers for all locations
+    [] call fnc_createLocationMarkers;
+    
+    // Add task button to menu if it doesn't exist
+    [] call fnc_addTaskMenuItem;
+    
+    // Ensure MISSION_activeTasks is initialized
+    if (isNil "MISSION_activeTasks") then {
+        MISSION_activeTasks = [];
+    };
+    
+    // Initialize task checking loop with proper error handling
+    [] spawn {
+        while {true} do {
+            try {
+                // Check for task completion
+                call fnc_checkTasksCompletion;
+            } catch {
+                diag_log format ["Error in task checking loop: %1", _exception];
+                systemChat "Warning: Task system encountered an error. Check RPT logs.";
+            };
+            sleep 5;
+        };
+    };
+    
+    systemChat "Task System initialized!";
+    diag_log "Task System initialized!";
+};
+
+// =====================================================================
+// HELPER FUNCTIONS FOR TASKS
+// =====================================================================
+
+// Function to set a location as captured
+fnc_setCapturedLocation = {
+    params ["_locationIndex", "_isCaptured"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for capture state change: %1", _locationIndex];
+        false
+    };
+    
+    // Update captured status
+    (MISSION_LOCATIONS select _locationIndex) set [7, _isCaptured];
+    
+    // Update marker
+    [_locationIndex] call fnc_updateLocationMarker;
+    
+    true
+};
+
+// Function to set a location as destroyed
+fnc_setDestroyedLocation = {
+    params ["_locationIndex"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for destruction: %1", _locationIndex];
+        false
+    };
+    
+    // Get reference object
+    private _refObj = MISSION_locationObjects select _locationIndex;
+    
+    // Mark object as destroyed if it exists
+    if (!isNil "_refObj" && {!isNull _refObj}) then {
+        _refObj setVariable ["destroyed", true, true];
+        
+        // Add destruction effects
+        private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
+        _fire attachTo [_refObj, [0, 0, 0]];
+    };
+    
+    // Update marker (keep enemy-controlled)
+    [_locationIndex] call fnc_updateLocationMarker;
+    
+    true
+};
+
+// Function to modify a location's intel level
+fnc_modifyLocationIntel = {
+    params ["_locationIndex", "_deltaIntel"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for intel modification: %1", _locationIndex];
+        false
+    };
+    
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    private _currentIntel = _locationData select 4;
+    private _newIntel = (_currentIntel + _deltaIntel) min 100 max 0;
+    
+    // Store old intel level to check for threshold crossings
+    private _oldIntelLevel = [_currentIntel] call fnc_getIntelLevel;
+    
+    // Update intel
+    _locationData set [4, _newIntel];
+    
+    // Check if intel level changed
+    private _newIntelLevel = [_newIntel] call fnc_getIntelLevel;
+    if (_oldIntelLevel != _newIntelLevel) then {
+        // Intel level crossed a threshold, update marker
+        [_locationIndex] call fnc_updateLocationMarker;
+        
+        // Notify player if intel increased
+        if (_newIntelLevel > _oldIntelLevel && _deltaIntel > 0) then {
+            private _locationType = _locationData select 2;
+            hint format ["Intelligence level increased for %1 location!", _locationType];
+            systemChat format ["New intelligence gathered on %1 location.", _locationType];
+        };
+    };
+    
+    true
+};
+
+// Function to get intel level category from percentage
+fnc_getIntelLevel = {
+    params ["_intelPercent"];
+    
+    if (_intelPercent >= TASK_INTEL_COMPLETE) then {
+        "complete"
+    } else {
+        if (_intelPercent >= TASK_INTEL_BASIC) then {
+            "basic"
+        } else {
+            "unknown"
+        };
+    };
 };
 
 // =====================================================================
