@@ -404,12 +404,6 @@ fnc_spawnCargoShip = {
     _shipGroup setCombatMode "GREEN";
     _shipGroup allowFleeing 0;
     
-    // Make ship Zeus editable
-    {
-        _x addCuratorEditableObjects [[_ship], true];
-        _x addCuratorEditableObjects _crew, true;
-    } forEach allCurators;
-    
     // Notify about ship departure
     hint "Cargo ship en route. ETA 3 minutes.";
     systemChat "Cargo ship en route with supplies. ETA 3 minutes.";

@@ -645,15 +645,7 @@ fnc_updateResourcesDisplay = {
             };
         } forEach RTS_resources;
     } 
-    // Fall back to construction resources if RTS_resources is empty or not found
-    else if (!isNil "MISSION_constructionResources" && {count MISSION_constructionResources > 0}) then {
-        {
-            if (count _x >= 2) then {
-                _x params ["_name", "_value"];
-                _resourcesArray pushBack format ["%1: %2", _name, floor _value];
-            };
-        } forEach MISSION_constructionResources;
-    }
+    
     // If no resource system found
     else {
         _resourcesArray = ["No resource system found"];

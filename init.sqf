@@ -11,6 +11,9 @@ if (hasInterface) then {
     // Load economy system
     [] execVM "scripts\economy\economyInit.sqf";
 	
+	// Load Task System
+	[] execVM "scripts\mission\taskSystemArray.sqf";
+	
     // Load menu system
     [] execVM "scripts\menu\menuInit.sqf";
     

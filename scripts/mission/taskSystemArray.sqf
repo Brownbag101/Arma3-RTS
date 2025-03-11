@@ -1,0 +1,1276 @@
+// scripts/mission/taskSystemArray.sqf
+// Array-based Task Management System for WW2 RTS
+
+// =====================================================================
+// LOCATION ARRAY - EDIT THIS TO ADD/MODIFY LOCATIONS
+// =====================================================================
+
+// Format of each location entry:
+// [
+//   "Location ID",            // Unique identifier
+//   "Location Name",          // Display name
+//   "Location Type",          // Type (e.g., "factory", "port", "airfield", "hq")
+//   [x, y, z],                // Position
+//   0,                        // Initial intel level (0-100)
+//   [                         // Available tasks and rewards for this location
+//     ["move_to", "Move To", [["intelligence", 10]]],
+//     ["recon", "Recon", [["intelligence", 25]]],
+//     ["capture", "Capture", [["manpower", 50], ["iron", 100]]],
+//     ["destroy", "Destroy", [["intelligence", 75]]]
+//   ],
+//   [                         // Briefing texts based on intel level
+//     "Unknown location detected. Requires reconnaissance.", // Unknown (0-25%)
+//     "Enemy facility identified. Further intel needed.",    // Basic (25-75%)
+//     "Full intel gathered on enemy facility. Ready to act." // Complete (75-100%)
+//   ],
+//   false,                    // Initially captured by player? (default: false)
+//   ""                        // Optional: Object name to use as reference point
+// ]
+
+// Task locations array - add/edit locations here
+MISSION_LOCATIONS = [
+    // Location 1 - Port Facility
+    [
+        "loc_port_1",                  // ID
+        "Dover Harbor",                // Name
+        "port",                        // Type
+        [1000, 1000, 0],               // Position
+        0,                             // Intel level
+        [                              // Available tasks
+            ["move_to", "Move To", [["intelligence", 10]]],
+            ["recon", "Recon", [["intelligence", 25]]],
+            ["capture", "Capture", [["manpower", 100], ["oil", 50], ["rubber", 25]]],
+            ["destroy", "Destroy", [["intelligence", 50]]]
+        ],
+        [                              // Briefing texts
+            "Unknown coastal facility detected. Reconnaissance required to identify.",
+            "Enemy port facility identified at Dover Harbor. It appears to be a major supply point for Channel operations. Limited defenses observed, but full details are unclear.",
+            "Dover Harbor is a major Axis supply port. Intelligence indicates a garrison of approximately one platoon with light anti-aircraft emplacements. Capturing this facility would secure valuable shipping capacity."
+        ],
+        false,                         // Not captured
+        "Location_1"                   // Reference object
+    ],
+    
+    // Location 2 - Factory
+    [
+        "loc_factory_1",               // ID
+        "Birmingham Factory Complex",  // Name
+        "factory",                     // Type
+        [1663.55,7075.32,0],               // Position
+        100,                             // Intel level
+        [                              // Available tasks
+            ["move_to", "Move To", [["intelligence", 10]]],
+            ["recon", "Recon", [["intelligence", 25]]],
+            ["capture", "Capture", [["manpower", 75], ["iron", 150], ["steel", 50]]],
+            ["destroy", "Destroy", [["intelligence", 75]]]
+        ],
+        [                              // Briefing texts
+            "Unknown industrial facility detected. Reconnaissance required.",
+            "Enemy factory complex identified in Birmingham. Appears to be producing armored vehicles. Moderate defenses observed.",
+            "Birmingham Factory Complex is manufacturing Panzer IV tanks. Intelligence indicates heavy machine gun emplacements and a company-strength garrison. Capturing this facility intact would provide significant production capacity."
+        ],
+        false,                         // Not captured
+        "Location_2"                   // Reference object
+    ],
+    
+    // Location 3 - Airfield
+    [
+        "loc_airfield_1",              // ID
+        "RAF Northolt",                // Name
+        "airfield",                    // Type
+        [2000, 2000, 0],               // Position
+        0,                             // Intel level
+        [                              // Available tasks
+            ["move_to", "Move To", [["intelligence", 10]]],
+            ["recon", "Recon", [["intelligence", 25]]],
+            ["capture", "Capture", [["manpower", 125], ["fuel", 100], ["aluminum", 75]]],
+            ["destroy", "Destroy", [["intelligence", 100]]]
+        ],
+        [                              // Briefing texts
+            "Unknown airfield detected. Reconnaissance required.",
+            "Enemy-occupied airfield identified at former RAF Northolt. Several aircraft visible on the ground. Strong defenses likely.",
+            "RAF Northolt is now serving as a forward Luftwaffe base with Me-109 fighters and Ju-88 bombers. Intelligence indicates significant anti-aircraft defenses and a full company of infantry protection. Capturing this airfield would provide a strategic air base."
+        ],
+        false,                         // Not captured
+        "Location_3"                   // Reference object
+    ],
+    
+    // Location 4 - HQ
+    [
+        "loc_hq_1",                    // ID
+        "German Command Post",         // Name
+        "hq",                          // Type
+        [2500, 2500, 0],               // Position
+        0,                             // Intel level
+        [                              // Available tasks
+            ["move_to", "Move To", [["intelligence", 10]]],
+            ["recon", "Recon", [["intelligence", 50]]],
+            ["capture", "Capture", [["manpower", 150], ["intelligence", 200]]],
+            ["destroy", "Destroy", [["intelligence", 150]]]
+        ],
+        [                              // Briefing texts
+            "Unknown command facility detected. High-value target.",
+            "German command post identified. Appears to be a regional headquarters coordinating local Axis forces. Heavy defenses observed.",
+            "German regional headquarters confirmed. Intelligence indicates presence of senior officers including Generalmajor Heinrich Mueller. Facility is protected by elite SS guards and defensive fortifications. Capturing this HQ would severely disrupt enemy command capabilities."
+        ],
+        false,                         // Not captured
+        "Location_4"                   // Reference object
+    ]
+];
+
+// =====================================================================
+// CONFIGURATION VALUES - EDIT AS NEEDED
+// =====================================================================
+
+// Intel level thresholds
+TASK_INTEL_UNKNOWN = 0;    // 0-25%
+TASK_INTEL_BASIC = 25;     // 25-75%
+TASK_INTEL_COMPLETE = 75;  // 75-100%
+
+// All available task types with required intel levels
+TASK_TYPES = [
+    ["move_to", "Move To Location", 0],        // Always available
+    ["recon", "Gather Intelligence", 0],       // Always available
+    ["patrol", "Patrol Area", 25],             // Requires basic intel
+    ["capture", "Capture Location", 50],       // Requires basic intel
+    ["destroy", "Destroy Location", 50],       // Requires basic intel
+    ["defend", "Defend Location", 0]           // Only for player-owned locations
+];
+
+// POW Camp location (can be updated at runtime)
+TASK_POW_CAMP_POS = [0, 0, 0];
+
+// =====================================================================
+// GLOBAL VARIABLES - DO NOT EDIT BELOW THIS LINE
+// =====================================================================
+
+// Initialize location objects array
+if (isNil "MISSION_locationObjects") then {
+    MISSION_locationObjects = [];
+};
+
+// Initialize active tasks array if not already defined
+if (isNil "MISSION_activeTasks") then {
+    MISSION_activeTasks = [];
+};
+
+// UI status
+if (isNil "MISSION_taskUIOpen") then {
+    MISSION_taskUIOpen = false;
+};
+
+// Selected location and task
+if (isNil "MISSION_selectedLocation") then {
+    MISSION_selectedLocation = -1;
+};
+
+if (isNil "MISSION_selectedTask") then {
+    MISSION_selectedTask = "";
+};
+
+// =====================================================================
+// CORE FUNCTIONS
+// =====================================================================
+
+// Function to initialize the task system
+fnc_initTaskSystem = {
+    // Find any reference objects for locations
+    [] call fnc_findReferenceObjects;
+    
+    // Create map markers for all locations
+    [] call fnc_createLocationMarkers;
+    
+    // Add task button to menu if it doesn't exist
+    [] call fnc_addTaskMenuItem;
+    
+    // Initialize task checking loop
+    [] spawn fnc_taskCheckLoop;
+    
+    systemChat "Task System initialized!";
+    diag_log "Task System initialized!";
+};
+
+// Function to find reference objects for locations
+fnc_findReferenceObjects = {
+    {
+        private _locationIndex = _forEachIndex;
+        private _refObjName = _x select 8;
+        
+        if (_refObjName != "") then {
+            private _refObj = missionNamespace getVariable [_refObjName, objNull];
+            
+            if (!isNull _refObj) then {
+                // Store the reference object
+                MISSION_locationObjects set [_locationIndex, _refObj];
+                
+                // Optionally update the position if reference object exists
+                private _pos = getPos _refObj;
+                (MISSION_LOCATIONS select _locationIndex) set [3, _pos];
+                
+                diag_log format ["Found reference object for location %1: %2 at position %3", _locationIndex, _refObjName, _pos];
+            } else {
+                // Store empty object
+                MISSION_locationObjects set [_locationIndex, objNull];
+                diag_log format ["Reference object not found for location %1: %2", _locationIndex, _refObjName];
+            };
+        } else {
+            // Store empty object
+            MISSION_locationObjects set [_locationIndex, objNull];
+        };
+    } forEach MISSION_LOCATIONS;
+};
+
+// Function to create map markers for all locations
+fnc_createLocationMarkers = {
+    {
+        private _locationIndex = _forEachIndex;
+        _x params ["_id", "_name", "_type", "_pos", "_intel", "_tasks", "_briefings", "_captured"];
+        
+        // Create marker name
+        private _markerName = format ["task_location_%1", _locationIndex];
+        
+        // Create marker
+        private _marker = createMarkerLocal [_markerName, _pos];
+        
+        // Set marker properties based on intel level and type
+        [_locationIndex] call fnc_updateLocationMarker;
+    } forEach MISSION_LOCATIONS;
+};
+
+// Function to update a location's marker based on intel level
+fnc_updateLocationMarker = {
+    params ["_locationIndex"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for marker update: %1", _locationIndex];
+    };
+    
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    _locationData params ["_id", "_name", "_type", "_pos", "_intel", "_tasks", "_briefings", "_captured"];
+    
+    // Get marker name
+    private _markerName = format ["task_location_%1", _locationIndex];
+    
+    // Set marker type based on intel and location type
+    private _markerType = "mil_unknown";
+    private _markerColor = "ColorBlack";
+    private _markerText = "?";
+    
+    if (_captured) then {
+        // Player controlled location
+        _markerColor = "ColorGreen";
+        _markerText = _type;
+        
+        switch (_type) do {
+            case "factory": { _markerType = "loc_Stack"; };
+            case "port": { _markerType = "loc_Anchor"; };
+            case "airfield": { _markerType = "loc_Helipad"; };
+            case "hq": { _markerType = "loc_Bunker"; };
+            default { _markerType = "loc_Ruin"; };
+        };
+    } else {
+        // Enemy controlled location
+        if (_intel >= TASK_INTEL_COMPLETE) then {
+            // Full intel
+            _markerColor = "ColorRed";
+            _markerText = _type;
+            
+            switch (_type) do {
+                case "factory": { _markerType = "loc_Stack"; };
+                case "port": { _markerType = "loc_Anchor"; };
+                case "airfield": { _markerType = "loc_Helipad"; };
+                case "hq": { _markerType = "loc_Bunker"; };
+                default { _markerType = "loc_Ruin"; };
+            };
+        } else {
+            if (_intel >= TASK_INTEL_BASIC) then {
+                // Basic intel
+                _markerColor = "ColorOrange";
+                _markerText = _type;
+                _markerType = "mil_unknown";
+            } else {
+                // Unknown
+                _markerColor = "ColorBlack";
+                _markerText = "?";
+                _markerType = "mil_unknown";
+            };
+        };
+    };
+    
+    // Update marker
+    _markerName setMarkerTypeLocal _markerType;
+    _markerName setMarkerColorLocal _markerColor;
+    _markerName setMarkerTextLocal _markerText;
+};
+
+// Function to get the briefing text based on intel level
+fnc_getLocationBriefing = {
+    params ["_locationIndex"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        "Invalid location"
+    };
+    
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    _locationData params ["_id", "_name", "_type", "_pos", "_intel", "_tasks", "_briefings"];
+    
+    // Determine which briefing to use based on intel level
+    private _briefingIndex = 0;
+    
+    if (_intel >= TASK_INTEL_COMPLETE) then {
+        _briefingIndex = 2;
+    } else {
+        if (_intel >= TASK_INTEL_BASIC) then {
+            _briefingIndex = 1;
+        };
+    };
+    
+    // Check if we have a briefing for this level
+    if (_briefingIndex < count _briefings) then {
+        _briefings select _briefingIndex
+    } else {
+        "No briefing available"
+    };
+};
+
+// Function to modify a location's intel level
+fnc_modifyLocationIntel = {
+    params ["_locationIndex", "_deltaIntel"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for intel modification: %1", _locationIndex];
+        false
+    };
+    
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    private _currentIntel = _locationData select 4;
+    private _newIntel = (_currentIntel + _deltaIntel) min 100 max 0;
+    
+    // Store old intel level to check for threshold crossings
+    private _oldIntelLevel = [_currentIntel] call fnc_getIntelLevel;
+    
+    // Update intel
+    _locationData set [4, _newIntel];
+    
+    // Check if intel level changed
+    private _newIntelLevel = [_newIntel] call fnc_getIntelLevel;
+    if (_oldIntelLevel != _newIntelLevel) then {
+        // Intel level crossed a threshold, update marker
+        [_locationIndex] call fnc_updateLocationMarker;
+        
+        // Notify player if intel increased
+        if (_newIntelLevel > _oldIntelLevel && _deltaIntel > 0) then {
+            private _locationType = _locationData select 2;
+            hint format ["Intelligence level increased for %1 location!", _locationType];
+            systemChat format ["New intelligence gathered on %1 location.", _locationType];
+        };
+    };
+    
+    true
+};
+
+// Function to get intel level category from percentage
+fnc_getIntelLevel = {
+    params ["_intelPercent"];
+    
+    if (_intelPercent >= TASK_INTEL_COMPLETE) then {
+        "complete"
+    } else {
+        if (_intelPercent >= TASK_INTEL_BASIC) then {
+            "basic"
+        } else {
+            "unknown"
+        };
+    };
+};
+
+// Function to set a location as captured
+fnc_setCapturedLocation = {
+    params ["_locationIndex", "_isCaptured"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for capture state change: %1", _locationIndex];
+        false
+    };
+    
+    // Update captured status
+    (MISSION_LOCATIONS select _locationIndex) set [7, _isCaptured];
+    
+    // Update marker
+    [_locationIndex] call fnc_updateLocationMarker;
+    
+    true
+};
+
+// Function to set a location as destroyed
+fnc_setDestroyedLocation = {
+    params ["_locationIndex"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for destruction: %1", _locationIndex];
+        false
+    };
+    
+    // Get reference object
+    private _refObj = MISSION_locationObjects select _locationIndex;
+    
+    // Mark object as destroyed if it exists
+    if (!isNil "_refObj" && {!isNull _refObj}) then {
+        _refObj setVariable ["destroyed", true, true];
+        
+        // Add destruction effects
+        private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
+        _fire attachTo [_refObj, [0, 0, 0]];
+    };
+    
+    // Update marker (keep enemy-controlled)
+    [_locationIndex] call fnc_updateLocationMarker;
+    
+    true
+};
+
+// =====================================================================
+// TASK CREATION AND MANAGEMENT
+// =====================================================================
+
+// Function to create a task
+fnc_createTask = {
+    params ["_locationIndex", "_taskType", "_assignedUnits"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for task creation: %1", _locationIndex];
+        ""
+    };
+    
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    _locationData params ["_id", "_name", "_type", "_pos", "_intel", "_availableTasks"];
+    
+    // Get task type info
+    private _taskTypeIndex = TASK_TYPES findIf {(_x select 0) == _taskType};
+    if (_taskTypeIndex == -1) exitWith {
+        diag_log format ["Invalid task type: %1", _taskType];
+        ""
+    };
+    
+    private _taskTypeName = (TASK_TYPES select _taskTypeIndex) select 1;
+    
+    // Create unique task ID
+    private _taskId = format ["task_%1_%2_%3", _locationIndex, _taskType, round(serverTime)];
+    
+    // Generate task description
+    private _taskDescription = [
+        format ["%1 - %2", _taskTypeName, _name],     // Title
+        format ["Your orders are to %1 the enemy %2 at %3.", toLower _taskTypeName, _type, _name],  // Description
+        format ["%1 - %2", _taskTypeName, _name]      // HUD
+    ];
+    
+    // Create the task - log diagnostics
+    diag_log format ["Creating task: %1 at position %2", _taskId, _pos];
+    
+    private _taskResult = [
+        side player,  // IMPORTANT: Use player's side instead of hardcoded west/independent
+        _taskId,
+        _taskDescription,
+        _pos,
+        "CREATED",
+        10,
+        true,
+        "default"
+    ] call BIS_fnc_taskCreate;
+    
+    diag_log format ["Task creation result: %1", _taskResult];
+    
+    // Assign to units - with diagnostic logging
+    {
+        diag_log format ["Assigning task %1 to unit %2", _taskId, name _x];
+        [_x, _taskId] call BIS_fnc_taskAssign;
+    } forEach _assignedUnits;
+    
+    // Create task object with all necessary data
+    private _taskObject = [
+        _taskId,                 // Task ID
+        _locationIndex,          // Location index
+        _taskType,               // Task type
+        _assignedUnits,          // Assigned units
+        serverTime,              // Creation time
+        "CREATED",               // Status
+        [],                      // Triggers
+        {}                       // Completion condition code (will be filled below)
+    ];
+    
+    // Create completion condition based on task type
+    private _completionCode = {};
+    private _triggers = [];
+    
+    switch (_taskType) do {
+        case "move_to": {
+            _completionCode = {
+                params ["_taskObj"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+                
+                private _locationData = MISSION_LOCATIONS select _locationIndex;
+                private _pos = _locationData select 3;
+                
+                // Task is complete if any assigned unit is within 100m of target
+                private _anyUnitPresent = false;
+                {
+                    if (_x distance _pos < 100) exitWith {
+                        _anyUnitPresent = true;
+                    };
+                } forEach _assignedUnits;
+                
+                _anyUnitPresent
+            };
+        };
+        case "recon": {
+            _completionCode = {
+                params ["_taskObj"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+                
+                private _locationData = MISSION_LOCATIONS select _locationIndex;
+                private _pos = _locationData select 3;
+                private _intel = _locationData select 4;
+                
+                // Task complete when intel reaches 100%
+                _intel >= 100
+            };
+            
+            // Fix the WEST vs INDEPENDENT issue for triggers
+    private _trig = createTrigger ["EmptyDetector", _pos, false];
+    _trig setTriggerArea [200, 200, 0, false];
+    
+    // Use string conversion of player side for better compatibility
+    private _playerSideStr = str(side player);
+    diag_log format ["Setting trigger activation for side: %1", _playerSideStr];
+    
+    _trig setTriggerActivation [_playerSideStr, "PRESENT", false];
+            _trig setTriggerStatements [
+                "this",
+                format ["[%1, 1] call fnc_modifyLocationIntel;", _locationIndex],
+                ""
+            ];
+            
+            _triggers pushBack _trig;
+        };
+        case "patrol": {
+            _completionCode = {
+                params ["_taskObj"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+                
+                private _locationData = MISSION_LOCATIONS select _locationIndex;
+                private _pos = _locationData select 3;
+                
+                // Patrol is complete after 5 minutes in area
+                private _taskTime = _taskObj select 4;
+                (serverTime - _taskTime) > 300 && 
+                {
+                    // And at least one unit is still in the area
+                    private _anyUnitPresent = false;
+                    {
+                        if (_x distance _pos < 200) exitWith {
+                            _anyUnitPresent = true;
+                        };
+                    } forEach _assignedUnits;
+                    _anyUnitPresent
+                }
+            };
+        };
+        case "capture": {
+            _completionCode = {
+                params ["_taskObj"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+                
+                private _locationData = MISSION_LOCATIONS select _locationIndex;
+                private _pos = _locationData select 3;
+                
+                // Capture is complete when location area is clear of enemies and friendly unit is present
+                private _nearEnemies = _pos nearEntities [["Man", "Car", "Tank"], 200];
+                _nearEnemies = _nearEnemies select {side _x != side player};
+                
+                private _friendlyPresent = false;
+                {
+                    if (_x distance _pos < 100) exitWith {
+                        _friendlyPresent = true;
+                    };
+                } forEach _assignedUnits;
+                
+                (count _nearEnemies == 0) && _friendlyPresent
+            };
+        };
+        case "destroy": {
+            _completionCode = {
+                params ["_taskObj"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+                
+                private _locationData = MISSION_LOCATIONS select _locationIndex;
+                private _refObj = MISSION_locationObjects select _locationIndex;
+                
+                // Check if destruction target was destroyed
+                if (!isNil "_refObj" && {!isNull _refObj}) then {
+                    _refObj getVariable ["destroyed", false]
+                } else {
+                    false
+                };
+            };
+            
+            // Create trigger for player-initiated destruction (e.g., explosives)
+            private _trig = createTrigger ["EmptyDetector", _pos, false];
+            _trig setTriggerArea [50, 50, 0, false];
+            _trig setTriggerActivation [str(side player), "PRESENT", false];
+            _trig setTriggerStatements [
+                format ["this && ({_x distance thisTrigger < 50} count (allMissionObjects 'TimeBombCore') > 0)", str(side player)],
+                format ["[%1] call fnc_setDestroyedLocation;", _locationIndex],
+                ""
+            ];
+            
+            _triggers pushBack _trig;
+        };
+        case "defend": {
+            _completionCode = {
+                params ["_taskObj"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+                
+                private _locationData = MISSION_LOCATIONS select _locationIndex;
+                private _pos = _locationData select 3;
+                
+                // Defense is complete after 10 minutes with no enemies in area
+                private _taskTime = _taskObj select 4;
+                private _nearEnemies = _pos nearEntities [["Man", "Car", "Tank"], 300];
+                _nearEnemies = _nearEnemies select {side _x != side player};
+                
+                (serverTime - _taskTime) > 600 && (count _nearEnemies == 0)
+            };
+        };
+    };
+    
+    // Set the completion code
+    _taskObject set [7, _completionCode];
+    
+    // Set the triggers
+    _taskObject set [6, _triggers];
+    
+    // Add task to active tasks
+    MISSION_activeTasks pushBack _taskObject;
+    
+    // Return the task ID
+    _taskId
+};
+
+// Function to complete a task
+fnc_completeTask = {
+    params ["_taskId", "_success"];
+    
+    // Find task in active tasks
+    private _taskIndex = MISSION_activeTasks findIf {(_x select 0) == _taskId};
+    if (_taskIndex == -1) exitWith {
+        diag_log format ["Task not found: %1", _taskId];
+        false
+    };
+    
+    private _taskObj = MISSION_activeTasks select _taskIndex;
+    _taskObj params ["_id", "_locationIndex", "_taskType", "_assignedUnits"];
+    
+    // Get location data
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    _locationData params ["_locId", "_name", "_type", "_pos", "_intel", "_availableTasks"];
+    
+    // Update task state
+    private _state = if (_success) then {"SUCCEEDED"} else {"FAILED"};
+    [_taskId, _state] call BIS_fnc_taskSetState;
+    
+    // If successful, give rewards
+    if (_success) then {
+        // Find rewards for this task type
+        private _taskReward = [];
+        {
+            if (_x select 0 == _taskType) exitWith {
+                _taskReward = _x select 2;
+            };
+        } forEach _availableTasks;
+        
+        // Apply rewards
+        {
+            _x params ["_resourceType", "_amount"];
+            
+            // Use economy system to add resources
+            if (!isNil "RTS_fnc_modifyResource") then {
+                [_resourceType, _amount] call RTS_fnc_modifyResource;
+            };
+            
+            systemChat format ["Received %1 %2 for completing task.", _amount, _resourceType];
+        } forEach _taskReward;
+        
+        // Handle capture/destroy effects
+        if (_taskType == "capture") then {
+            // Mark location as captured
+            [_locationIndex, true] call fnc_setCapturedLocation;
+            
+            hint format ["Location captured: %1", _name];
+            systemChat "Location has been captured and is now under friendly control.";
+        };
+        
+        if (_taskType == "destroy") then {
+            // Mark location as destroyed
+            [_locationIndex] call fnc_setDestroyedLocation;
+            
+            hint format ["Location destroyed: %1", _name];
+            systemChat "Location has been destroyed. Enemy can no longer use it.";
+        };
+    };
+    
+    // Clean up
+    {
+        deleteVehicle _x;
+    } forEach (_taskObj select 6); // Delete all triggers
+    
+    // Remove from active tasks
+    MISSION_activeTasks deleteAt _taskIndex;
+    
+    true
+};
+
+// Function to check task completion
+fnc_checkTasksCompletion = {
+    {
+        private _taskObj = _x;
+        private _taskId = _taskObj select 0;
+        private _completionCode = _taskObj select 7;
+        
+        // Check if task is complete
+        private _isComplete = [_taskObj] call _completionCode;
+        
+        if (_isComplete) then {
+            [_taskId, true] call fnc_completeTask;
+        };
+    } forEach MISSION_activeTasks;
+};
+
+// Background task checking loop
+fnc_taskCheckLoop = {
+    while {true} do {
+        // Check for task completion
+        call fnc_checkTasksCompletion;
+        
+        sleep 5;
+    };
+};
+
+// =====================================================================
+// USER INTERFACE
+// =====================================================================
+
+// Function to add task button to menu
+fnc_addTaskMenuItem = {
+    // Check if menu buttons exists
+    if (isNil "RTS_menuButtons") exitWith {
+        systemChat "Error: RTS_menuButtons not found. Cannot add task menu item.";
+    };
+    
+    // Check if task is already in the menu
+    private _index = RTS_menuButtons findIf {(_x select 0) == "tasks"};
+    
+    if (_index == -1) then {
+        // Add tasks to menu buttons
+        RTS_menuButtons pushBack [
+            "tasks", 
+            "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\map_ca.paa", 
+            "Operations", 
+            "Plan and execute military operations"
+        ];
+        
+        systemChat "Added Operations button to the menu.";
+    };
+};
+
+// Function to open the Task UI
+fnc_openTaskUI = {
+    if (dialog) then {closeDialog 0};
+    createDialog "RscDisplayEmpty";
+    
+    private _display = findDisplay -1;
+    
+    if (isNull _display) exitWith {
+        diag_log "Failed to create Task UI";
+        systemChat "Error: Could not create operations interface";
+        false
+    };
+    
+    // Set flag
+    MISSION_taskUIOpen = true;
+    
+    // Create background - use higher control ID (9000+) to ensure it's on top and MOVE UP to clear bottom menus
+    private _background = _display ctrlCreate ["RscText", 9000];
+    _background ctrlSetPosition [0.1 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.8 * safezoneW, 0.75 * safezoneH];
+    _background ctrlSetBackgroundColor [0, 0, 0, 0.8];
+    _background ctrlCommit 0;
+    
+    // Create title - using high control IDs for proper layering - MOVE UP
+    private _title = _display ctrlCreate ["RscText", 9001];
+    _title ctrlSetPosition [0.1 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.8 * safezoneW, 0.05 * safezoneH];
+    _title ctrlSetText "Operations Command";
+    _title ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+    _title ctrlCommit 0;
+    
+    // Create map control - use high control ID - MOVE UP
+    private _map = _display ctrlCreate ["RscMapControl", 9002];
+    _map ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.12 * safezoneH + safezoneY, 0.5 * safezoneW, 0.6 * safezoneH];
+    _map ctrlSetBackgroundColor [0.969, 0.957, 0.949, 1.0];
+    _map ctrlCommit 0;
+    
+    // Enable showing task markers on map
+    _map ctrlAddEventHandler ["Draw", {
+        params ["_control"];
+        
+        // Draw custom markers for tasks on the map
+        {
+            _x params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+            
+            private _locationData = MISSION_LOCATIONS select _locationIndex;
+            private _pos = _locationData select 3;
+            
+            // Draw task indicator
+            _control drawIcon [
+                "\A3\ui_f\data\map\markers\military\objective_CA.paa",
+                [0, 0.3, 0.6, 1],
+                _pos,
+                24,
+                24,
+                0,
+                "Active Task",
+                1,
+                0.06,
+                "TahomaB",
+                "right"
+            ];
+        } forEach MISSION_activeTasks;
+    }];
+    
+    // Create info panel - use high control ID - MOVE UP
+    private _infoPanel = _display ctrlCreate ["RscText", 9100];
+    _infoPanel ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.12 * safezoneH + safezoneY, 0.25 * safezoneW, 0.3 * safezoneH];
+    _infoPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
+    _infoPanel ctrlCommit 0;
+    
+    // Create location info title - use high control ID - MOVE UP
+    private _infoTitle = _display ctrlCreate ["RscText", 9101];
+    _infoTitle ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.12 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
+    _infoTitle ctrlSetText "Location Information";
+    _infoTitle ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+    _infoTitle ctrlCommit 0;
+    
+    // Create intel bar background - use high control ID - MOVE UP
+    private _intelBarBg = _display ctrlCreate ["RscText", 9102];
+    _intelBarBg ctrlSetPosition [0.64 * safezoneW + safezoneX, 0.17 * safezoneH + safezoneY, 0.23 * safezoneW, 0.02 * safezoneH];
+    _intelBarBg ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+    _intelBarBg ctrlCommit 0;
+    
+    // Create intel bar - use high control ID - MOVE UP
+    private _intelBar = _display ctrlCreate ["RscProgress", 9103];
+    _intelBar ctrlSetPosition [0.64 * safezoneW + safezoneX, 0.17 * safezoneH + safezoneY, 0.23 * safezoneW, 0.02 * safezoneH];
+    _intelBar progressSetPosition 0;
+    _intelBar ctrlSetTextColor [0.2, 0.6, 1, 1];
+    _intelBar ctrlCommit 0;
+    
+    // Create location info text - use high control ID - MOVE UP
+    private _infoText = _display ctrlCreate ["RscStructuredText", 9104];
+    _infoText ctrlSetPosition [0.64 * safezoneW + safezoneX, 0.2 * safezoneH + safezoneY, 0.23 * safezoneW, 0.21 * safezoneH];
+    _infoText ctrlSetStructuredText parseText "Select a location on the map.";
+    _infoText ctrlCommit 0;
+    
+    // Create task panel - use high control ID - MOVE UP
+    private _taskPanel = _display ctrlCreate ["RscText", 9200];
+    _taskPanel ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.25 * safezoneW, 0.3 * safezoneH];
+    _taskPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
+    _taskPanel ctrlCommit 0;
+    
+    // Create task panel title - use high control ID - MOVE UP
+    private _taskTitle = _display ctrlCreate ["RscText", 9201];
+    _taskTitle ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
+    _taskTitle ctrlSetText "Available Tasks";
+    _taskTitle ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+    _taskTitle ctrlCommit 0;
+    
+    // Create task buttons - MOVE UP
+    private _buttonHeight = 0.04 * safezoneH;
+    private _buttonMargin = 0.01 * safezoneH;
+    private _buttonY = 0.47 * safezoneH + safezoneY;
+    
+    {
+        _x params ["_taskId", "_taskName", "_requiredIntel"];
+        
+        private _button = _display ctrlCreate ["RscButton", 9300 + _forEachIndex];
+        _button ctrlSetPosition [
+            0.64 * safezoneW + safezoneX,
+            _buttonY + (_forEachIndex * (_buttonHeight + _buttonMargin)),
+            0.23 * safezoneW,
+            _buttonHeight
+        ];
+        _button ctrlSetText _taskName;
+        _button setVariable ["taskType", _taskId];
+        _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+        _button ctrlSetEventHandler ["ButtonClick", "params ['_ctrl']; [_ctrl getVariable 'taskType'] call fnc_selectTask"];
+        _button ctrlEnable false;
+        _button ctrlCommit 0;
+    } forEach TASK_TYPES;
+    
+    // Create unit selection panel - use high control ID - MOVE UP
+    private _unitPanel = _display ctrlCreate ["RscText", 9400];
+    _unitPanel ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.73 * safezoneH + safezoneY, 0.5 * safezoneW, 0.05 * safezoneH];
+    _unitPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
+    _unitPanel ctrlCommit 0;
+    
+    // Create unit selection combo box - use high control ID - MOVE UP
+    private _unitCombo = _display ctrlCreate ["RscCombo", 9401];
+    _unitCombo ctrlSetPosition [0.13 * safezoneW + safezoneX, 0.735 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
+    
+    // Add available units/groups
+    [] call fnc_populateUnitCombo;
+    
+    _unitCombo ctrlCommit 0;
+    
+    // Create confirm button - use high control ID - MOVE UP
+    private _confirmButton = _display ctrlCreate ["RscButton", 9500];
+    _confirmButton ctrlSetPosition [0.76 * safezoneW + safezoneX, 0.74 * safezoneH + safezoneY, 0.12 * safezoneW, 0.05 * safezoneH];
+    _confirmButton ctrlSetText "Confirm Task";
+    _confirmButton ctrlSetBackgroundColor [0.2, 0.6, 0.2, 1];
+    _confirmButton ctrlEnable false;
+    _confirmButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_confirmTask"];
+    _confirmButton ctrlCommit 0;
+    
+    // Create cancel button - use high control ID - MOVE UP
+    private _cancelButton = _display ctrlCreate ["RscButton", 9501];
+    _cancelButton ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.74 * safezoneH + safezoneY, 0.12 * safezoneW, 0.05 * safezoneH];
+    _cancelButton ctrlSetText "Close";
+    _cancelButton ctrlSetBackgroundColor [0.6, 0.2, 0.2, 1];
+    _cancelButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
+    _cancelButton ctrlCommit 0;
+    
+    // Add map click handler
+    _map ctrlAddEventHandler ["MouseButtonClick", {
+        params ["_control", "_button", "_xPos", "_yPos", "_shift", "_ctrl", "_alt"];
+        
+        if (_button == 0) then { // Left click
+            private _worldPos = _control ctrlMapScreenToWorld [_xPos, _yPos];
+            
+            // Find closest location
+            private _closestIndex = -1;
+            private _closestDist = 1000000;
+            
+            {
+                private _locationPos = _x select 3;
+                private _dist = _worldPos distance _locationPos;
+                
+                if (_dist < _closestDist && _dist < 300) then {
+                    _closestDist = _dist;
+                    _closestIndex = _forEachIndex;
+                };
+            } forEach MISSION_LOCATIONS;
+            
+            if (_closestIndex != -1) then {
+                [_closestIndex] call fnc_selectLocation;
+            };
+        };
+    }];
+    
+    // Add handler for dialog closure
+    _display displayAddEventHandler ["Unload", {
+        MISSION_taskUIOpen = false;
+        
+        // Reset selected location and task
+        MISSION_selectedLocation = -1;
+        MISSION_selectedTask = "";
+    }];
+    
+    // Start UI update loop
+    [] spawn {
+        while {MISSION_taskUIOpen && !isNull findDisplay -1} do {
+            call fnc_updateTaskUI;
+            sleep 0.5;
+        };
+    };
+};
+
+// Function to populate unit combo box
+fnc_populateUnitCombo = {
+    private _display = findDisplay -1;
+    private _unitCombo = _display displayCtrl 9401;
+    
+    // Clear combo box
+    lbClear _unitCombo;
+    
+    // Add local player group
+    private _playerGroup = group player;
+    private _index = _unitCombo lbAdd format ["%1 (%2 members)", groupId _playerGroup, count units _playerGroup];
+    _unitCombo lbSetData [_index, str _playerGroup];
+    
+    // Add individual units from player's group
+    {
+        private _unitIndex = _unitCombo lbAdd format ["  - %1 (%2)", name _x, getText (configFile >> "CfgVehicles" >> typeOf _x >> "displayName")];
+        _unitCombo lbSetData [_unitIndex, str _x];
+    } forEach units _playerGroup;
+    
+    // Get any other player-side groups
+    private _allGroups = allGroups select {side _x == side player};
+    
+    {
+        private _group = _x;
+        
+        // Skip player's own group (already added)
+        if (_group != _playerGroup) then {
+            private _groupIndex = _unitCombo lbAdd format ["%1 (%2 members)", groupId _group, count units _group];
+            _unitCombo lbSetData [_groupIndex, str _group];
+            
+            // Add individual units
+            {
+                private _unitIndex = _unitCombo lbAdd format ["  - %1 (%2)", name _x, getText (configFile >> "CfgVehicles" >> typeOf _x >> "displayName")];
+                _unitCombo lbSetData [_unitIndex, str _x];
+            } forEach units _group;
+        };
+    } forEach _allGroups;
+    
+    // Select first item by default
+    if (lbSize _unitCombo > 0) then {
+        _unitCombo lbSetCurSel 0;
+    };
+};
+
+// Function to select a location on the map
+fnc_selectLocation = {
+    params ["_locationIndex"];
+    
+    private _display = findDisplay -1;
+    
+    // Update selected location
+    MISSION_selectedLocation = _locationIndex;
+    
+    // Get location data
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    _locationData params ["_id", "_name", "_type", "_pos", "_intel", "_tasks", "_briefings", "_captured"];
+    
+    // Update intel bar
+    private _intelBar = _display displayCtrl 9103;
+    _intelBar progressSetPosition (_intel / 100);
+    
+    // Update info text
+    private _infoText = _display displayCtrl 9104;
+    private _briefing = [_locationIndex] call fnc_getLocationBriefing;
+    
+    private _intelLevel = [_intel] call fnc_getIntelLevel;
+    private _intelColor = switch (_intelLevel) do {
+        case "complete": { "#00FF00" }; // Green
+        case "basic": { "#FFFF00" }; // Yellow
+        default { "#FF0000" }; // Red
+    };
+    
+    _infoText ctrlSetStructuredText parseText format [
+        "<t size='1.2'>%1</t><br/>" +
+        "<t color='%2'>Intelligence: %3%4</t><br/><br/>" +
+        "%5",
+        _name,
+        _intelColor,
+        round _intel,
+        "%",
+        _briefing
+    ];
+    
+    // Update available tasks
+    {
+        _x params ["_taskId", "_taskName", "_requiredIntel"];
+        private _button = _display displayCtrl (1300 + _forEachIndex);
+        
+        // Enable button if:
+        // 1. We have enough intel
+        // 2. Special case for 'defend' - only available for player-controlled locations
+        private _enabled = _intel >= _requiredIntel;
+        
+        if (_taskId == "defend") then {
+            _enabled = _enabled && _captured;
+        };
+        
+        if (_taskId == "capture" || _taskId == "destroy") then {
+            _enabled = _enabled && !_captured;
+        };
+        
+        _button ctrlEnable _enabled;
+        
+        // Update button color if selected
+        if (MISSION_selectedTask == _taskId) then {
+            _button ctrlSetBackgroundColor [0.3, 0.3, 0.7, 1];
+        } else {
+            _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+        };
+    } forEach TASK_TYPES;
+    
+    // Update confirm button
+    private _confirmButton = _display displayCtrl 9500;
+    _confirmButton ctrlEnable (MISSION_selectedTask != "");
+};
+
+// Function to select a task
+fnc_selectTask = {
+    params ["_taskType"];
+    
+    private _display = findDisplay -1;
+    
+    // Update selected task
+    MISSION_selectedTask = _taskType;
+    
+    // Update task buttons
+    {
+        _x params ["_taskId", "_taskName", "_requiredIntel"];
+        private _button = _display displayCtrl (9300 + _forEachIndex);
+        
+        if (_taskId == _taskType) then {
+            _button ctrlSetBackgroundColor [0.3, 0.3, 0.7, 1];
+        } else {
+            _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+        };
+    } forEach TASK_TYPES;
+    
+    // Update confirm button
+    private _confirmButton = _display displayCtrl 9500;
+    _confirmButton ctrlEnable (MISSION_selectedLocation != -1);
+};
+
+// Function to confirm and create task
+fnc_confirmTask = {
+    private _display = findDisplay -1;
+    
+    // Get selected unit(s)
+    private _unitCombo = _display displayCtrl 1401;
+    private _selIndex = lbCurSel _unitCombo;
+    
+    if (_selIndex == -1) exitWith {
+        hint "No unit selected for task assignment.";
+    };
+    
+    private _dataStr = _unitCombo lbData _selIndex;
+    private _assignedUnits = [];
+    
+    // Convert data string to actual object or group
+    private _selectedObject = call compile _dataStr;
+    
+    if (isNil "_selectedObject") exitWith {
+        hint "Error: Could not resolve selected unit.";
+    };
+    
+    // If group was selected, assign to all units in group
+    if (_selectedObject isEqualType grpNull) then {
+        _assignedUnits = units _selectedObject;
+    } else {
+        // Single unit selected
+        _assignedUnits = [_selectedObject];
+    };
+    
+    // Create the task
+    private _taskId = [MISSION_selectedLocation, MISSION_selectedTask, _assignedUnits] call fnc_createTask;
+    
+    if (_taskId != "") then {
+        // Close the dialog
+        closeDialog 0;
+        
+        // Get location and task data for feedback
+        private _locationData = MISSION_LOCATIONS select MISSION_selectedLocation;
+        private _locationName = _locationData select 1;
+        private _locationType = _locationData select 2;
+        private _taskTypeIndex = TASK_TYPES findIf {(_x select 0) == MISSION_selectedTask};
+        private _taskTypeName = (TASK_TYPES select _taskTypeIndex) select 1;
+        
+        // Provide feedback
+        hint format ["Task created: %1 at %2", _taskTypeName, _locationName];
+        systemChat format ["New task assigned to %1: %2 the %3 at %4.", 
+            if (_selectedObject isEqualType grpNull) then {groupId _selectedObject} else {name _selectedObject},
+            _taskTypeName,
+            _locationType,
+            _locationName
+        ];
+    } else {
+        hint "Error creating task. Please try again.";
+    };
+};
+
+// Function to update task UI
+fnc_updateTaskUI = {
+    private _display = findDisplay -1;
+    
+    // If a location is selected, update its info
+    if (MISSION_selectedLocation != -1) then {
+        [MISSION_selectedLocation] call fnc_selectLocation;
+    };
+};
+
+// =====================================================================
+// HELPER FUNCTIONS FOR EXTERNAL USE
+// =====================================================================
+
+// Function to add intel to a location by ID
+fnc_addIntelToLocationById = {
+    params ["_locationId", "_amount"];
+    
+    private _locationIndex = MISSION_LOCATIONS findIf {(_x select 0) == _locationId};
+    
+    if (_locationIndex != -1) then {
+        [_locationIndex, _amount] call fnc_modifyLocationIntel;
+        true
+    } else {
+        diag_log format ["Location not found with ID: %1", _locationId];
+        false
+    };
+};
+
+// Function to create a POW camp
+fnc_createPOWCamp = {
+    params ["_position"];
+    
+    // Store POW camp position
+    TASK_POW_CAMP_POS = _position;
+    
+    // Create marker
+    private _marker = createMarker ["marker_pow_camp", _position];
+    _marker setMarkerType "mil_flag";
+    _marker setMarkerColor "ColorBlue";
+    _marker setMarkerText "POW Camp";
+    
+    systemChat "POW Camp established.";
+};
+
+// Function to deliver a POW
+fnc_deliverPOW = {
+    params ["_unit", "_isHighValue"];
+    
+    if (_unit distance TASK_POW_CAMP_POS > 50) exitWith {
+        systemChat "POW must be delivered to the POW camp.";
+        false
+    };
+    
+    // Give intel reward based on value
+    private _intelAmount = if (_isHighValue) then {50} else {10};
+    
+    // Add intel to all locations
+    {
+        if (!(_x select 7)) then { // Only for enemy locations
+            [_forEachIndex, _intelAmount] call fnc_modifyLocationIntel;
+        };
+    } forEach MISSION_LOCATIONS;
+    
+    // Delete the POW
+    deleteVehicle _unit;
+    
+    // Give feedback
+    if (_isHighValue) then {
+        hint "High-value prisoner delivered. Significant intelligence gained!";
+        systemChat "Interrogation of high-value prisoner revealed critical intelligence about enemy positions.";
+    } else {
+        hint "POW delivered. Intelligence gained.";
+        systemChat "Interrogation of prisoner provided some intelligence about enemy positions.";
+    };
+    
+    true
+};
+
+// =====================================================================
+// INITIALIZATION - CALL THIS TO START THE SYSTEM
+// =====================================================================
+
+// Initialize the task system
+[] call fnc_initTaskSystem;

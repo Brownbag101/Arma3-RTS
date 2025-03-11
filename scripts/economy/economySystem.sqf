@@ -102,11 +102,11 @@ RTS_fnc_modifyResource = {
         [] call RTS_fnc_updateResourceUI;
         
         // Debug message
-        if (_amount > 0) then {
-            systemChat format ["Added %1 %2. New total: %3", _amount, _resourceType, _newAmount];
-        } else {
-            systemChat format ["Removed %1 %2. New total: %3", abs _amount, _resourceType, _newAmount];
-        };
+        //if (_amount > 0) then {
+        //    systemChat format ["Added %1 %2. New total: %3", _amount, _resourceType, _newAmount];
+        //} else {
+        //    systemChat format ["Removed %1 %2. New total: %3", abs _amount, _resourceType, _newAmount];
+        //};
         
         true
     } else {

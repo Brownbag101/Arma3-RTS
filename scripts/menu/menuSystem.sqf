@@ -115,9 +115,15 @@ RTS_fnc_createMenuButtons = {
             // Call appropriate function based on button ID
             switch (_id) do {
                 case "command": {
-                    // Command system
-                    systemChat "Command panel not implemented yet";
-                };
+                    // Task/Operations system
+					if (!isNil "fnc_openTaskUI") then {
+						[] call fnc_openTaskUI;
+					} else {
+						systemChat "Operations system is not loaded yet";
+						hint "Operations system is not loaded yet";
+				    };
+				};	
+			
                 case "intelligence": {
                     // Intelligence system
                     systemChat "Intelligence panel not implemented yet";
