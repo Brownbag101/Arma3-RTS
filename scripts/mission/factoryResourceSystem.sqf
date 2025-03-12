@@ -166,6 +166,51 @@ fnc_removeLocationResourceBonus = {
     true
 };
 
+// Function to prepare a location for recapture
+fnc_prepareLocationForRecapture = {
+    params ["_locationIndex"];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        systemChat "Invalid location index for recapture preparation";
+        false
+    };
+    
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    private _locationName = _locationData select 1;
+    private _pos = _locationData select 3;
+    
+    // Reset any existing triggers or markers that might interfere
+    // This is critical for allowing recapture to work again
+    
+    // 1. Delete any existing capture triggers in the area
+    private _existingTriggers = _pos nearObjects ["EmptyDetector", 300];
+    {
+        if (_x getVariable ["captureTaskTrigger", false]) then {
+            deleteVehicle _x;
+            diag_log format ["Deleted existing capture trigger at location %1", _locationName];
+        };
+    } forEach _existingTriggers;
+    
+    // 2. Clean up any debug markers that might be present
+    if (!isNil "CAPTURE_DEBUG_MARKER") then {
+        deleteMarker "capture_debug";
+        CAPTURE_DEBUG_MARKER = nil;
+        diag_log "Deleted capture debug marker";
+    };
+    
+    // 3. Force proper intel to ensure location is recognized as captured by enemy
+    [_locationIndex, 100] call fnc_modifyLocationIntel; // Ensure full intel
+    
+    // 4. Ensure the location is properly marked as enemy-controlled
+    (MISSION_LOCATIONS select _locationIndex) set [7, false];
+    [_locationIndex] call fnc_updateLocationMarker;
+    
+    systemChat format ["Location %1 is now ready for recapture operations", _locationName];
+    diag_log format ["Location %1 prepared for recapture", _locationName];
+    
+    true
+};
+
 // Hook into the existing task system by overriding the capture location function
 // Store the original function first
 if (isNil "original_fnc_setCapturedLocation") then {
@@ -264,6 +309,25 @@ fnc_checkLocationRecapture = {
     };
 };
 
+// Enhanced recapture test function - replaces the existing RTS_testRecapture
+RTS_testRecapture = {
+    params [["_locationIndex", 1]];
+    
+    // First force the location to be uncaptured
+    [_locationIndex, false] call fnc_setCapturedLocation;
+    
+    // Then properly prepare it for recapture
+    [_locationIndex] call fnc_prepareLocationForRecapture;
+    
+    // Get location name for feedback
+    private _locationName = "Unknown";
+    if (_locationIndex >= 0 && _locationIndex < count MISSION_LOCATIONS) then {
+        _locationName = (MISSION_LOCATIONS select _locationIndex) select 1;
+    };
+    
+    systemChat format ["Location %1 has been captured by enemy forces and is ready for recapture operations", _locationName];
+};
+
 // Main monitoring loop for recapture checks
 [] spawn {
     sleep 5; // Initial delay to ensure everything is initialized
@@ -321,15 +385,6 @@ fnc_forceRecapture = {
     [_locationIndex, false] call fnc_setCapturedLocation;
     
     systemChat format ["Recapture complete: %1 is now enemy-controlled", _locationName];
-};
-
-// Add a debug command for testing recapture
-if (isNil "RTS_testRecapture") then {
-    RTS_testRecapture = {
-        params [["_locationIndex", 1]];
-        
-        [_locationIndex] call fnc_forceRecapture;
-    };
 };
 
 // Print confirmation message

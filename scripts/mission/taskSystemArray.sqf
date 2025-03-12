@@ -101,7 +101,7 @@ MISSION_LOCATIONS = [
         "German Command Post",         // Name
         "hq",                          // Type
         [1639.65,6888.65,0],               // Position
-        10,                             // Intel level
+        100,                             // Intel level
         [                              // Available tasks
             ["move_to", "Move To", [["intelligence", 10]]],
             ["recon", "Recon", [["intelligence", 50]]],
@@ -654,7 +654,7 @@ fnc_createTask = {
     
     // Add curator icon if module exists
     if (!isNull _curatorModule) then {
-        _iconID = [_curatorModule, [_taskIcon, [0, 0.3, 0.6, 1], _pos, 1, 1, 0, _taskTypeName, 1, 0.05, "TahomaB"], false] call BIS_fnc_addCuratorIcon;
+        _iconID = [_curatorModule, [_taskIcon, [0, 0.3, 0.6, 1], _pos, 1, 1, 0, _taskTypeName], false] call BIS_fnc_addCuratorIcon;
         diag_log format ["Created Zeus curator icon for task %1 with ID: %2", _taskId, _iconID];
     } else {
         diag_log "Warning: Could not find Zeus module 'z1' for curator icon";
@@ -683,42 +683,42 @@ fnc_createTask = {
     
     switch (_taskType) do {
         case "move_to": {
-    _completionCode = {
-        params ["_taskObj"];
-        _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
-        
-        private _locationData = MISSION_LOCATIONS select _locationIndex;
-        private _pos = _locationData select 3;
-        
-        // Task is complete if any assigned unit is within 100m of target
-        private _anyUnitPresent = false;
-        {
-            if (!isNull _x && {alive _x} && {_x distance _pos < 100}) exitWith {
-                systemChat format ["Unit %1 has reached objective area", name _x];
-                diag_log format ["Task completion triggered by %1 at %2m from objective", name _x, _x distance _pos];
-                _anyUnitPresent = true;
+            _completionCode = {
+                params ["_taskObj"];
+                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
                 
-                // Add intel gain when unit reaches destination
-                private _availableTasks = _locationData select 5;
+                private _locationData = MISSION_LOCATIONS select _locationIndex;
+                private _pos = _locationData select 3;
+                
+                // Task is complete if any assigned unit is within 100m of target
+                private _anyUnitPresent = false;
                 {
-                    if (count _x >= 3 && (_x select 0) == "move_to") then {
-                        private _rewards = _x select 2;
+                    if (!isNull _x && {alive _x} && {_x distance _pos < 100}) exitWith {
+                        systemChat format ["Unit %1 has reached objective area", name _x];
+                        diag_log format ["Task completion triggered by %1 at %2m from objective", name _x, _x distance _pos];
+                        _anyUnitPresent = true;
+                        
+                        // Add intel gain when unit reaches destination
+                        private _availableTasks = _locationData select 5;
                         {
-                            if (count _x >= 2 && (_x select 0) == "intelligence") then {
-                                private _intelReward = _x select 1;
-                                if (typeName _intelReward == "SCALAR" && _intelReward > 0) then {
-                                    // Use exactly the configured reward amount (not multiplied)
-                                    [_locationIndex, _intelReward] call fnc_modifyLocationIntel;
-                                    diag_log format ["Move completion intel gain: +%1 for location %2", _intelReward, _locationIndex];
-                                };
+                            if (count _x >= 3 && (_x select 0) == "move_to") then {
+                                private _rewards = _x select 2;
+                                {
+                                    if (count _x >= 2 && (_x select 0) == "intelligence") then {
+                                        private _intelReward = _x select 1;
+                                        if (typeName _intelReward == "SCALAR" && _intelReward > 0) then {
+                                            // Use exactly the configured reward amount (not multiplied)
+                                            [_locationIndex, _intelReward] call fnc_modifyLocationIntel;
+                                            diag_log format ["Move completion intel gain: +%1 for location %2", _intelReward, _locationIndex];
+                                        };
+                                    };
+                                } forEach _rewards;
                             };
-                        } forEach _rewards;
+                        } forEach _availableTasks;
                     };
-                } forEach _availableTasks;
-            };
-        } forEach _assignedUnits;
-        
-        _anyUnitPresent
+                } forEach _assignedUnits;
+                
+                _anyUnitPresent
             };
         };
         case "recon": {
@@ -801,18 +801,22 @@ fnc_createTask = {
                 private _locationData = MISSION_LOCATIONS select _locationIndex;
                 private _pos = _locationData select 3;
                 
+                // Enhanced logging for capture task evaluation
+                diag_log format ["Evaluating capture completion for task %1 at location %2", _taskId, _locationIndex];
+                
                 // Capture is complete when location area is clear of enemies and friendly unit is present
                 private _nearEnemies = _pos nearEntities [["Man", "Car", "Tank"], 200];
-                _nearEnemies = _nearEnemies select {side _x != side player};
+                _nearEnemies = _nearEnemies select {side _x != side player && side _x != civilian};
                 
                 private _friendlyPresent = false;
                 {
                     if (!isNull _x && {alive _x} && {_x distance _pos < 100}) exitWith {
                         _friendlyPresent = true;
+                        diag_log format ["Friendly unit %1 detected at %2m from objective", name _x, _x distance _pos];
                     };
                 } forEach _assignedUnits;
                 
-                diag_log format ["Capture task: %1 enemies, friendly present: %2", count _nearEnemies, _friendlyPresent];
+                diag_log format ["Capture task check: %1 enemies, friendly present: %2", count _nearEnemies, _friendlyPresent];
                 
                 // Add some debug visuals for easier testing
                 if (_friendlyPresent && count _nearEnemies == 0) then {
@@ -827,56 +831,116 @@ fnc_createTask = {
                             CAPTURE_DEBUG_MARKER setMarkerText "CAPTURE READY";
                         };
                     };
+                } else {
+                    // Remove marker if conditions no longer met
+                    if (!isNil "CAPTURE_DEBUG_MARKER") then {
+                        deleteMarker "CAPTURE_DEBUG_MARKER";
+                        CAPTURE_DEBUG_MARKER = nil;
+                    };
                 };
                 
+                // Return true if conditions are met - very simple and direct check
                 (count _nearEnemies == 0) && _friendlyPresent
             };
             
-            // Add trigger to help with capture process (clear area of enemies)
+            // Create an enhanced capture trigger
             private _captureTrig = createTrigger ["EmptyDetector", _pos, false];
             _captureTrig setTriggerArea [200, 200, 0, false];
             _captureTrig setTriggerActivation [str(side player), "PRESENT", false];
+            
+            // Tag the trigger for later identification and cleanup
+            _captureTrig setVariable ["captureTaskTrigger", true];
+            _captureTrig setVariable ["associatedTask", _taskId];
+            _captureTrig setVariable ["locationIndex", _locationIndex];
+            
             _captureTrig setTriggerStatements [
-                "this && {({side _x != side player && alive _x} count thisList) == 0}",
-                format ["
+                // Condition: Player units present, no enemy units
+                "this && {({side _x != side player && side _x != civilian && alive _x} count thisList) == 0}",
+                // Activation: Show feedback message and create debug marker
+                format [
+                    "
                     if (isServer) then {
                         systemChat 'Area secured. Hold position to capture.';
                         hint 'Area secured. Hold position to capture.';
+                        
+                        if (isNil 'CAPTURE_DEBUG_MARKER') then {
+                            CAPTURE_DEBUG_MARKER = createMarker ['capture_debug', %1];
+                            CAPTURE_DEBUG_MARKER setMarkerType 'hd_objective';
+                            CAPTURE_DEBUG_MARKER setMarkerColor 'ColorGreen';
+                            CAPTURE_DEBUG_MARKER setMarkerText 'CAPTURE READY';
+                            
+                            diag_log 'Created capture debug marker';
+                        };
                     };
-                "],
-                ""
+                    ",
+                    _pos
+                ],
+                // Deactivation: Remove marker if conditions no longer met
+                "
+                if (!isNil 'CAPTURE_DEBUG_MARKER') then {
+                    deleteMarker 'CAPTURE_DEBUG_MARKER';
+                    CAPTURE_DEBUG_MARKER = nil;
+                    diag_log 'Removed capture debug marker';
+                };
+                "
             ];
             
             _triggers pushBack _captureTrig;
         };
         case "destroy": {
-            _completionCode = {
-                params ["_taskObj"];
-                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+    _completionCode = {
+        params ["_taskObj"];
+        _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+        
+        private _locationData = MISSION_LOCATIONS select _locationIndex;
+        private _refObj = MISSION_locationObjects select _locationIndex;
+        
+        // Check if destruction target was destroyed or is no longer alive
+        if (!isNil "_refObj" && {!isNull _refObj}) then {
+            if (!alive _refObj || _refObj getVariable ["destroyed", false]) then {
+                // Mark as permanently destroyed for the mission system
+                _locationData set [8, true]; // Add a "permanently destroyed" flag in position 8
                 
-                private _locationData = MISSION_LOCATIONS select _locationIndex;
-                private _refObj = MISSION_locationObjects select _locationIndex;
-                
-                // Check if destruction target was destroyed
-                if (!isNil "_refObj" && {!isNull _refObj}) then {
-                    _refObj getVariable ["destroyed", false]
-                } else {
-                    false
+                // Remove any resource bonuses if it was captured
+                if (_locationData select 7) then { // If captured
+                    [_locationIndex] call fnc_removeLocationResourceBonus;
                 };
+                
+                // Mark the location as uncaptured
+                (_locationData) set [7, false];
+                
+                // Update marker to show destroyed state
+                private _markerName = format ["task_location_%1", _locationIndex];
+                if (markerType _markerName != "") then {
+                    _markerName setMarkerColor "ColorBlack";
+                    _markerName setMarkerAlpha 0.6;
+                    _markerName setMarkerText format ["%1 (Destroyed)", _locationData select 2];
+                };
+                
+                // Create a destruction effect if needed
+                if (isServer) then {
+                    if (isNil {_refObj getVariable "destruction_effect"}) then {
+                        private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
+                        _fire attachTo [_refObj, [0, 0, 0]];
+                        _refObj setVariable ["destruction_effect", _fire, true];
+                    };
+                };
+                
+                diag_log format ["Location %1 permanently destroyed", _locationIndex];
+                true
+            } else {
+                false
             };
-            
-            // Create trigger for player-initiated destruction (e.g., explosives)
-            private _trig = createTrigger ["EmptyDetector", _pos, false];
-            _trig setTriggerArea [50, 50, 0, false];
-            _trig setTriggerActivation [str(side player), "PRESENT", false];
-            _trig setTriggerStatements [
-                "this && {({_x distance thisTrigger < 50} count (allMissionObjects 'TimeBombCore') > 0)}",
-                format ["[%1] call fnc_setDestroyedLocation; diag_log 'Destruction trigger activated';", _locationIndex],
-                ""
-            ];
-            
-            _triggers pushBack _trig;
+        } else {
+            false
         };
+    };
+    
+    
+    _triggers pushBack _trig;
+    
+    
+		};
         case "defend": {
             _completionCode = {
                 params ["_taskObj"];
