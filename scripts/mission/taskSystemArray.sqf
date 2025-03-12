@@ -61,7 +61,7 @@ MISSION_LOCATIONS = [
         [                              // Available tasks
             ["move_to", "Move To", [["intelligence", 10]]],
             ["recon", "Recon", [["intelligence", 25]]],
-            ["capture", "Capture", [["manpower", 75], ["iron", 150], ["steel", 50]]],
+            ["capture", "Capture", [["rubber", 75], ["iron", 150], ["oil", 50]]],
             ["destroy", "Destroy", [["intelligence", 75]]]
         ],
         [                              // Briefing texts
@@ -353,32 +353,89 @@ fnc_getLocationBriefing = {
 fnc_modifyLocationIntel = {
     params ["_locationIndex", "_deltaIntel"];
     
-    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
-        diag_log format ["Invalid location index for intel modification: %1", _locationIndex];
+    // Additional debug
+    diag_log format ["fnc_modifyLocationIntel called with index: %1 (type: %2), delta: %3 (type: %4)", 
+        _locationIndex, typeName _locationIndex, _deltaIntel, typeName _deltaIntel];
+    
+    // Type safety - ensure we have proper number types
+    private _locIndex = 0;
+    private _deltaValue = 0;
+    
+    if (typeName _locationIndex == "SCALAR") then {
+        _locIndex = _locationIndex;
+    } else {
+        _locIndex = parseNumber (str _locationIndex);
+        diag_log format ["Converting location index to number: %1", _locIndex];
+    };
+    
+    if (typeName _deltaIntel == "SCALAR") then {
+        _deltaValue = _deltaIntel;
+    } else {
+        _deltaValue = parseNumber (str _deltaIntel);
+        diag_log format ["Converting delta intel to number: %1", _deltaValue];
+    };
+    
+    if (_locIndex < 0 || _locIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["Invalid location index for intel modification: %1", _locIndex];
         false
     };
     
-    private _locationData = MISSION_LOCATIONS select _locationIndex;
-    private _currentIntel = _locationData select 4;
-    private _newIntel = (_currentIntel + _deltaIntel) min 100 max 0;
+    private _locationData = MISSION_LOCATIONS select _locIndex;
+    private _currentIntel = 0;
     
-    // Store old intel level to check for threshold crossings
-    private _oldIntelLevel = [_currentIntel] call fnc_getIntelLevel;
+    // Safely get current intel
+    if (count _locationData > 4) then {
+        _currentIntel = _locationData select 4;
+        
+        // Type safety for current intel
+        if (typeName _currentIntel != "SCALAR") then {
+            _currentIntel = parseNumber (str _currentIntel);
+            diag_log format ["Converting current intel to number: %1", _currentIntel];
+        };
+    } else {
+        diag_log format ["Warning: Location data has invalid structure: %1", _locationData];
+    };
     
-    // Update intel
+    private _newIntel = (_currentIntel + _deltaValue) min 100 max 0;
+    diag_log format ["Intel calculation: %1 + %2 = %3", _currentIntel, _deltaValue, _newIntel];
+    
+    // Get intel levels with full try-catch for safety
+    private _oldIntelLevel = "unknown";
+    private _newIntelLevel = "unknown";
+    
+    try {
+        _oldIntelLevel = [_currentIntel] call fnc_getIntelLevel;
+    } catch {
+        diag_log format ["Error getting old intel level: %1", _exception];
+    };
+    
+    try {
+        _newIntelLevel = [_newIntel] call fnc_getIntelLevel;
+    } catch {
+        diag_log format ["Error getting new intel level: %1", _exception];
+    };
+    
+    // Update intel value in location data
     _locationData set [4, _newIntel];
     
     // Check if intel level changed
-    private _newIntelLevel = [_newIntel] call fnc_getIntelLevel;
     if (_oldIntelLevel != _newIntelLevel) then {
+        diag_log format ["Intel level changed from %1 to %2", _oldIntelLevel, _newIntelLevel];
+        
         // Intel level crossed a threshold, update marker
-        [_locationIndex] call fnc_updateLocationMarker;
+        [_locIndex] call fnc_updateLocationMarker;
         
         // Notify player if intel increased
-        if (_newIntelLevel > _oldIntelLevel && _deltaIntel > 0) then {
+        if (_newIntelLevel == "basic" && _oldIntelLevel == "unknown") then {
             private _locationType = _locationData select 2;
-            hint format ["Intelligence level increased for %1 location!", _locationType];
-            systemChat format ["New intelligence gathered on %1 location.", _locationType];
+            hint format ["Basic intelligence gathered on %1 location!", _locationType];
+            systemChat format ["Initial intelligence gathered on %1 location.", _locationType];
+        };
+        
+        if (_newIntelLevel == "complete" && _oldIntelLevel != "complete") then {
+            private _locationType = _locationData select 2;
+            hint format ["Full intelligence gathered on %1 location!", _locationType];
+            systemChat format ["Comprehensive intelligence gathered on %1 location.", _locationType];
         };
     };
     
@@ -389,10 +446,35 @@ fnc_modifyLocationIntel = {
 fnc_getIntelLevel = {
     params ["_intelPercent"];
     
-    if (_intelPercent >= TASK_INTEL_COMPLETE) then {
+    // Force to number type
+    private _intelValue = 0;
+    
+    // Type safety
+    if (typeName _intelPercent == "SCALAR") then {
+        _intelValue = _intelPercent;
+    } else {
+        // Try to parse it as a number, with fallback to 0
+        _intelValue = parseNumber (str _intelPercent);
+        diag_log format ["Warning: Intel percent wasn't a number: %1, converted to %2", _intelPercent, _intelValue];
+    };
+    
+    // Make sure thresholds are numbers too
+    private _basicThreshold = TASK_INTEL_BASIC;
+    private _completeThreshold = TASK_INTEL_COMPLETE;
+    
+    if (typeName _basicThreshold != "SCALAR") then {
+        _basicThreshold = parseNumber (str _basicThreshold);
+    };
+    
+    if (typeName _completeThreshold != "SCALAR") then {
+        _completeThreshold = parseNumber (str _completeThreshold);
+    };
+    
+    // Now do the safe comparison with numbers
+    if (_intelValue >= _completeThreshold) then {
         "complete"
     } else {
-        if (_intelPercent >= TASK_INTEL_BASIC) then {
+        if (_intelValue >= _basicThreshold) then {
             "basic"
         } else {
             "unknown"
@@ -575,24 +657,42 @@ fnc_createTask = {
     
     switch (_taskType) do {
         case "move_to": {
-            _completionCode = {
-                params ["_taskObj"];
-                _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+    _completionCode = {
+        params ["_taskObj"];
+        _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
+        
+        private _locationData = MISSION_LOCATIONS select _locationIndex;
+        private _pos = _locationData select 3;
+        
+        // Task is complete if any assigned unit is within 100m of target
+        private _anyUnitPresent = false;
+        {
+            if (!isNull _x && {alive _x} && {_x distance _pos < 100}) exitWith {
+                systemChat format ["Unit %1 has reached objective area", name _x];
+                diag_log format ["Task completion triggered by %1 at %2m from objective", name _x, _x distance _pos];
+                _anyUnitPresent = true;
                 
-                private _locationData = MISSION_LOCATIONS select _locationIndex;
-                private _pos = _locationData select 3;
-                
-                // Task is complete if any assigned unit is within 100m of target
-                private _anyUnitPresent = false;
+                // Add intel gain when unit reaches destination
+                private _availableTasks = _locationData select 5;
                 {
-                    if (!isNull _x && {alive _x} && {_x distance _pos < 100}) exitWith {
-                        systemChat format ["Unit %1 has reached objective area", name _x];
-                        diag_log format ["Task completion triggered by %1 at %2m from objective", name _x, _x distance _pos];
-                        _anyUnitPresent = true;
+                    if (count _x >= 3 && (_x select 0) == "move_to") then {
+                        private _rewards = _x select 2;
+                        {
+                            if (count _x >= 2 && (_x select 0) == "intelligence") then {
+                                private _intelReward = _x select 1;
+                                if (typeName _intelReward == "SCALAR" && _intelReward > 0) then {
+                                    // Use exactly the configured reward amount (not multiplied)
+                                    [_locationIndex, _intelReward] call fnc_modifyLocationIntel;
+                                    diag_log format ["Move completion intel gain: +%1 for location %2", _intelReward, _locationIndex];
+                                };
+                            };
+                        } forEach _rewards;
                     };
-                } forEach _assignedUnits;
-                
-                _anyUnitPresent
+                } forEach _availableTasks;
+            };
+        } forEach _assignedUnits;
+        
+        _anyUnitPresent
             };
         };
         case "recon": {
@@ -784,7 +884,7 @@ fnc_createTask = {
     _taskId
 };
 
-// Function to complete a task
+// Function to complete a task - UPDATED VERSION
 fnc_completeTask = {
     params ["_taskId", "_success"];
     
@@ -837,15 +937,8 @@ fnc_completeTask = {
     // Update task state
     private _state = if (_success) then {"SUCCEEDED"} else {"FAILED"};
     
-    // Set task state for assigned units, not the entire side
-    _assignedUnits = _assignedUnits select {!isNull _x && alive _x}; // Clean up invalid units
-    
-    if (count _assignedUnits > 0) then {
-        [_taskId, _state, _assignedUnits] call BIS_fnc_taskSetState;
-    } else {
-        // Fallback to setting task state globally if no units are left
-        [_taskId, _state] call BIS_fnc_taskSetState;
-    };
+    // Set task state correctly - FIX: Only pass taskId and state
+    [_taskId, _state] call BIS_fnc_taskSetState;
     
     // If successful, give rewards
     if (_success) then {
@@ -862,43 +955,58 @@ fnc_completeTask = {
         
         // Find rewards for this task type
         private _taskReward = [];
-        
-        // Enhanced debug logging for task rewards
-        diag_log format ["Looking for rewards for task type: %1", _taskType];
-        diag_log format ["Available tasks at location: %1", _availableTasks];
+        private _intelReward = 0;
         
         {
-            if (count _x > 0) then {
-                private _tType = "";
-                if (count _x > 0) then { _tType = _x select 0; };
+            if (count _x >= 3) then {
+                private _tType = _x select 0;
                 
-                diag_log format ["Checking task type: %1 against %2", _tType, _taskType];
-                
-                if (_tType == _taskType && count _x > 2) then {
+                if (_tType == _taskType) then {
                     _taskReward = _x select 2;
-                    diag_log format ["Found matching reward: %1", _taskReward];
+                    diag_log format ["Found matching reward for %1: %2", _taskType, _taskReward];
+                    
+                    // Look for intelligence reward specifically
+                    {
+                        if (count _x >= 2) then {
+                            private _resourceType = _x select 0;
+                            private _amount = _x select 1;
+                            
+                            if (_resourceType == "intelligence") then {
+                                _intelReward = _amount;
+                            };
+                        };
+                    } forEach _taskReward;
                 };
             };
         } forEach _availableTasks;
         
-        // Apply rewards with feedback
+        // Special handling for move_to task type - directly add intelligence
+        if (_taskType == "move_to" && _intelReward > 0) then {
+            // Directly modify location intel
+            diag_log format ["Adding %1 intel directly for move_to task at location %2", _intelReward, _locationIndex];
+            [_locationIndex, _intelReward] call fnc_modifyLocationIntel;
+            systemChat format ["Gained %1 intelligence about %2.", _intelReward, _name];
+        };
+        
+        // Apply other rewards with feedback
         {
             if (count _x >= 2) then {
                 private _resourceType = _x select 0;
                 private _amount = _x select 1;
                 
+                // Skip intelligence for move_to as we handled it separately
+                if (_taskType == "move_to" && _resourceType == "intelligence") then {
+                    continue;
+                };
+                
+                // Ensure amount is a number
+                if (typeName _amount != "SCALAR") then {
+                    _amount = parseNumber (str _amount);
+                    diag_log format ["Converted non-scalar amount: %1 to %2", _x select 1, _amount];
+                };
+                
                 // Use economy system to add resources
                 if (!isNil "RTS_fnc_modifyResource") then {
-                    // Ensure amount is a number
-                    if (typeName _amount != "SCALAR") then {
-                        _amount = parseNumber str _amount;
-                    };
-                    
-                    // Debug information
-                    diag_log format ["Applying reward: Resource: %1, Amount: %2, TypeName: %3", 
-                        _resourceType, _amount, typeName _amount];
-                    
-                    // Apply reward
                     [_resourceType, _amount] call RTS_fnc_modifyResource;
                     systemChat format ["Received %1 %2 for completing task.", _amount, _resourceType];
                     diag_log format ["Added resource reward: %1 %2", _amount, _resourceType];
@@ -906,8 +1014,6 @@ fnc_completeTask = {
                     diag_log "WARNING: RTS_fnc_modifyResource is not defined, cannot give rewards";
                     systemChat format ["Error: Could not add %1 %2 (economy system unavailable)", _amount, _resourceType];
                 };
-            } else {
-                diag_log format ["Invalid reward format: %1", _x];
             };
         } forEach _taskReward;
         
@@ -960,6 +1066,9 @@ fnc_completeTask = {
             diag_log format ["Removed Zeus curator icon ID: %1", _iconID];
         };
     };
+    
+    // Delete the task properly
+    [_taskId] call BIS_fnc_deleteTask;
     
     // Remove from active tasks
     MISSION_activeTasks deleteAt _taskIndex;
@@ -1157,6 +1266,21 @@ fnc_setDestroyedLocation = {
 fnc_modifyLocationIntel = {
     params ["_locationIndex", "_deltaIntel"];
     
+    // Additional debug
+    diag_log format ["fnc_modifyLocationIntel called with index: %1 (type: %2), delta: %3 (type: %4)", 
+        _locationIndex, typeName _locationIndex, _deltaIntel, typeName _deltaIntel];
+    
+    // Type safety - ensure we have proper number types
+    if (typeName _locationIndex != "SCALAR") then {
+        _locationIndex = parseNumber (str _locationIndex);
+        diag_log format ["Converting location index to number: %1", _locationIndex];
+    };
+    
+    if (typeName _deltaIntel != "SCALAR") then {
+        _deltaIntel = parseNumber (str _deltaIntel);
+        diag_log format ["Converting delta intel to number: %1", _deltaIntel];
+    };
+    
     if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
         diag_log format ["Invalid location index for intel modification: %1", _locationIndex];
         false
@@ -1164,7 +1288,15 @@ fnc_modifyLocationIntel = {
     
     private _locationData = MISSION_LOCATIONS select _locationIndex;
     private _currentIntel = _locationData select 4;
+    
+    // Type safety for current intel
+    if (typeName _currentIntel != "SCALAR") then {
+        _currentIntel = parseNumber (str _currentIntel);
+        diag_log format ["Converting current intel to number: %1", _currentIntel];
+    };
+    
     private _newIntel = (_currentIntel + _deltaIntel) min 100 max 0;
+    diag_log format ["Intel calculation: %1 + %2 = %3", _currentIntel, _deltaIntel, _newIntel];
     
     // Store old intel level to check for threshold crossings
     private _oldIntelLevel = [_currentIntel] call fnc_getIntelLevel;
@@ -1179,11 +1311,11 @@ fnc_modifyLocationIntel = {
         [_locationIndex] call fnc_updateLocationMarker;
         
         // Notify player if intel increased
-        if (_newIntelLevel > _oldIntelLevel && _deltaIntel > 0) then {
-            private _locationType = _locationData select 2;
-            hint format ["Intelligence level increased for %1 location!", _locationType];
-            systemChat format ["New intelligence gathered on %1 location.", _locationType];
-        };
+        //if (_newIntelLevel > _oldIntelLevel && _deltaIntel > 0) then {
+        //    private _locationType = _locationData select 2;
+        //    hint format ["Intelligence level increased for %1 location!", _locationType];
+        //    systemChat format ["New intelligence gathered on %1 location.", _locationType];
+        //};
     };
     
     true
@@ -1192,6 +1324,11 @@ fnc_modifyLocationIntel = {
 // Function to get intel level category from percentage
 fnc_getIntelLevel = {
     params ["_intelPercent"];
+    
+    // Type safety
+    if (typeName _intelPercent != "SCALAR") then {
+        _intelPercent = parseNumber (str _intelPercent);
+    };
     
     if (_intelPercent >= TASK_INTEL_COMPLETE) then {
         "complete"
@@ -1753,6 +1890,40 @@ fnc_deliverPOW = {
     };
     
     true
+};
+
+fnc_setupReconTrigger = {
+    params ["_locationIndex", "_pos"];
+    
+    // Create trigger for intel gathering
+    private _trig = createTrigger ["EmptyDetector", _pos, false];
+    _trig setTriggerArea [200, 200, 0, false];
+    
+    // Use exact side of player for better compatibility
+    private _playerSide = side player;
+    _trig setTriggerActivation [str _playerSide, "PRESENT", false];
+    
+    // Store the location index in the trigger variable for reference
+    _trig setVariable ["locationIndex", _locationIndex];
+    
+    // Create a safer trigger statement with proper type handling
+    _trig setTriggerStatements [
+        "this", 
+        "
+        private _locIndex = thisTrigger getVariable ['locationIndex', -1];
+        if (_locIndex >= 0) then {
+            private _intelGain = 1;
+            private _dice = floor random 3;
+            if (_dice == 0) then { _intelGain = 2; };
+            if (_dice == 1) then { _intelGain = 1; };
+            [_locIndex, _intelGain] call fnc_modifyLocationIntel;
+            diag_log format ['Intel trigger activated: +%1 intel for location %2', _intelGain, _locIndex];
+        };
+        ",
+        ""
+    ];
+    
+    _trig
 };
 
 // =====================================================================
