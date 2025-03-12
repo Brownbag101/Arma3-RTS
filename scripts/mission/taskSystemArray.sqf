@@ -892,54 +892,60 @@ fnc_createTask = {
         params ["_taskObj"];
         _taskObj params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
         
-        private _locationData = MISSION_LOCATIONS select _locationIndex;
-        private _refObj = MISSION_locationObjects select _locationIndex;
+        // Get reference object for the location
+        private _refObj = if (_locationIndex < count MISSION_locationObjects) then {
+            MISSION_locationObjects select _locationIndex
+        } else {
+            objNull
+        };
         
-        // Check if destruction target was destroyed or is no longer alive
-        if (!isNil "_refObj" && {!isNull _refObj}) then {
-            if (!alive _refObj || _refObj getVariable ["destroyed", false]) then {
-                // Mark as permanently destroyed for the mission system
-                _locationData set [8, true]; // Add a "permanently destroyed" flag in position 8
+        // Simple check: If reference object exists and is destroyed (damage = 1), complete the task
+        if (!isNull _refObj && { damage _refObj >= 0.9 }) then {
+            // If object is damaged enough, consider the task complete
+            diag_log format ["Destroy task: Object for location %1 has damage %2 - Task completed", _locationIndex, damage _refObj];
+            
+            // Handle any cleanup needed for the location
+            // Set flags to indicate location is destroyed
+            if (_locationIndex < count MISSION_LOCATIONS) then {
+                (MISSION_LOCATIONS select _locationIndex) set [7, false]; // Not captured
                 
-                // Remove any resource bonuses if it was captured
-                if (_locationData select 7) then { // If captured
-                    [_locationIndex] call fnc_removeLocationResourceBonus;
+                // Add destroyed flag if array position exists
+                if (count (MISSION_LOCATIONS select _locationIndex) > 8) then {
+                    (MISSION_LOCATIONS select _locationIndex) set [8, true]; // Destroyed
+                } else {
+                    (MISSION_LOCATIONS select _locationIndex) pushBack true; // Add destroyed flag
                 };
                 
-                // Mark the location as uncaptured
-                (_locationData) set [7, false];
-                
-                // Update marker to show destroyed state
+                // Update map marker
                 private _markerName = format ["task_location_%1", _locationIndex];
                 if (markerType _markerName != "") then {
                     _markerName setMarkerColor "ColorBlack";
                     _markerName setMarkerAlpha 0.6;
-                    _markerName setMarkerText format ["%1 (Destroyed)", _locationData select 2];
+                    private _locName = (MISSION_LOCATIONS select _locationIndex) select 1;
+                    _markerName setMarkerText format ["%1 (DESTROYED)", _locName];
                 };
                 
-                // Create a destruction effect if needed
-                if (isServer) then {
-                    if (isNil {_refObj getVariable "destruction_effect"}) then {
-                        private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
-                        _fire attachTo [_refObj, [0, 0, 0]];
-                        _refObj setVariable ["destruction_effect", _fire, true];
-                    };
+                // Remove economic benefits if needed
+                if (!isNil "fnc_removeLocationResourceBonus") then {
+                    [_locationIndex] call fnc_removeLocationResourceBonus;
                 };
-                
-                diag_log format ["Location %1 permanently destroyed", _locationIndex];
-                true
-            } else {
-                false
             };
+            
+            // Add destruction effects if not already present
+            if (isNil {_refObj getVariable "destruction_effect"}) then {
+                private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
+                _fire attachTo [_refObj, [0, 0, 0]];
+                _refObj setVariable ["destruction_effect", _fire, true];
+            };
+            
+            // Return true to indicate task completion
+            true
         } else {
+            // If object doesn't exist or isn't damaged enough, task is not complete
             false
         };
-    };
     
-    
-    _triggers pushBack _trig;
-    
-    
+     
 		};
         case "defend": {
             _completionCode = {
@@ -972,6 +978,7 @@ fnc_createTask = {
     
     // Return the task ID
     _taskId
+};
 };
 
 // Function to complete a task - UPDATED VERSION
@@ -2015,6 +2022,521 @@ fnc_setupReconTrigger = {
     
     _trig
 };
+
+// Function to handle complete destruction of a location
+// This should be called by a trigger when location object reaches damage 1
+fnc_forceDestroyTaskCompletion = {
+    params ["_locationIndex"];
+    
+    // First, log everything we can about the current state
+    diag_log "==================================================";
+    diag_log format ["FORCE COMPLETION: Starting for location index %1", _locationIndex];
+    
+    // Get location info if available
+    private _locationName = "Unknown";
+    private _locationType = "Unknown";
+    if (_locationIndex >= 0 && _locationIndex < count MISSION_LOCATIONS) then {
+        private _locationData = MISSION_LOCATIONS select _locationIndex;
+        if (count _locationData > 1) then { _locationName = _locationData select 1; };
+        if (count _locationData > 2) then { _locationType = _locationData select 2; };
+    };
+    diag_log format ["FORCE COMPLETION: Location: %1 (%2)", _locationName, _locationType];
+    
+    // Get the reference object
+    private _refObj = objNull;
+    if (!isNil "MISSION_locationObjects" && _locationIndex < count MISSION_locationObjects) then {
+        _refObj = MISSION_locationObjects select _locationIndex;
+    };
+    diag_log format ["FORCE COMPLETION: Reference object: %1 (Null: %2)", _refObj, isNull _refObj];
+    
+    // Log all active tasks
+    diag_log "ACTIVE TASKS:";
+    {
+        diag_log format ["Task: %1", _x];
+    } forEach MISSION_activeTasks;
+    
+    // APPROACH 1: Try to find and complete tasks using our expected structure
+    diag_log "APPROACH 1: Using active tasks array structure";
+    private _completedTasks = [];
+    {
+        // Try to extract task information safely
+        private _taskId = "";
+        private _taskLocIndex = -1;
+        private _taskType = "";
+        
+        // Handle possible array structure variations
+        if (typeName _x == "ARRAY") then {
+            if (count _x > 0) then { _taskId = _x select 0; };
+            if (count _x > 1) then { _taskLocIndex = _x select 1; };
+            if (count _x > 2) then { _taskType = _x select 2; };
+        };
+        
+        diag_log format ["Examining task: ID=%1, LocIdx=%2, Type=%3", _taskId, _taskLocIndex, _taskType];
+        
+        // Check if this is a destroy task for our location
+        if (_taskLocIndex == _locationIndex && _taskType == "destroy") then {
+            diag_log format ["FOUND MATCHING DESTROY TASK: %1", _taskId];
+            
+            // Try to complete it
+            if (!isNil "fnc_completeTask") then {
+                diag_log format ["Attempting to complete task %1 via fnc_completeTask", _taskId];
+                [_taskId, true] call fnc_completeTask;
+                _completedTasks pushBack _taskId;
+            } else {
+                diag_log "ERROR: fnc_completeTask not found";
+            };
+            
+            // Also try direct BIS function as backup
+            diag_log format ["Attempting to complete task %1 via BIS_fnc_taskSetState", _taskId];
+            [_taskId, "SUCCEEDED"] call BIS_fnc_taskSetState;
+        };
+    } forEach MISSION_activeTasks;
+    
+    // APPROACH 2: Try to complete tasks using BIS task system
+    diag_log "APPROACH 2: Using BIS task functions to find tasks";
+    private _allTaskIds = [];
+    
+    // Get all task IDs from the BIS task system
+    _allTaskIds = player call BIS_fnc_tasksUnit;
+    
+    diag_log format ["Found %1 tasks in BIS task system: %2", count _allTaskIds, _allTaskIds];
+    
+    // Look for destroy tasks related to this location
+    {
+        private _taskId = _x;
+        private _taskDestination = [_taskId] call BIS_fnc_taskDestination;
+        private _taskDescription = [_taskId] call BIS_fnc_taskDescription;
+        private _taskType = [_taskId] call BIS_fnc_taskType;
+        
+        diag_log format ["Task %1 - Destination: %2, Type: %3", _taskId, _taskDestination, _taskType];
+        
+        // Check description for location name
+        private _descriptionText = "";
+        if (count _taskDescription > 0) then {
+            _descriptionText = _taskDescription select 0;
+        };
+        
+        // If the task description contains our location name or is a destroy task at our location
+        if (_descriptionText find _locationName != -1 || 
+            (_taskType == "destroy" && _taskDestination distance (MISSION_LOCATIONS select _locationIndex select 3) < 100)) then {
+            
+            diag_log format ["Found likely matching task: %1", _taskId];
+            
+            // Complete it with both methods for good measure
+            [_taskId, "SUCCEEDED"] call BIS_fnc_taskSetState;
+            if (!isNil "fnc_completeTask") then {
+                [_taskId, true] call fnc_completeTask;
+            };
+            
+            _completedTasks pushBack _taskId;
+        };
+    } forEach _allTaskIds;
+    
+    // APPROACH 3: Brute force location destruction state
+    diag_log "APPROACH 3: Setting location destruction state";
+    
+    // Mark the location as destroyed in all possible ways
+    if (_locationIndex >= 0 && _locationIndex < count MISSION_LOCATIONS) then {
+        // Set destroyed in location data
+        (MISSION_LOCATIONS select _locationIndex) set [7, false]; // Not captured
+        if (count (MISSION_LOCATIONS select _locationIndex) > 8) then {
+            (MISSION_LOCATIONS select _locationIndex) set [8, true]; // Destroyed flag
+        } else {
+            (MISSION_LOCATIONS select _locationIndex) pushBack true;
+        };
+        
+        diag_log "Set location data destroyed flags";
+    };
+    
+    // Mark reference object as destroyed
+    if (!isNull _refObj) then {
+        _refObj setVariable ["destroyed", true, true];
+        _refObj setDamage 1;
+        diag_log "Set reference object destroyed flags and damage";
+        
+        // Add destruction effects
+        private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
+        _fire attachTo [_refObj, [0, 0, 0]];
+    };
+    
+    // Update map marker
+    private _markerName = format ["task_location_%1", _locationIndex];
+    if (markerType _markerName != "") then {
+        _markerName setMarkerColor "ColorBlack";
+        _markerName setMarkerAlpha 0.6;
+        _markerName setMarkerText format ["%1 (DESTROYED)", _locationName];
+        diag_log format ["Updated marker: %1", _markerName];
+    };
+    
+    // Summary
+    diag_log format ["COMPLETED TASKS: %1", _completedTasks];
+    diag_log "FORCE COMPLETION: Finished";
+    diag_log "==================================================";
+    
+    // Return to caller
+    if (count _completedTasks > 0) then {
+        systemChat format ["Force-completed %1 tasks for location %2", count _completedTasks, _locationName];
+        true
+    } else {
+        systemChat format ["No tasks found to complete for location %1", _locationName];
+        false
+    };
+};
+
+RTS_forceDestroyLocation = {
+    params [["_locationIndex", 0]];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        systemChat format ["Invalid location index: %1", _locationIndex];
+        false
+    };
+    
+    private _locationName = (MISSION_LOCATIONS select _locationIndex) select 1;
+    systemChat format ["Forcing destruction for location %1 (%2)...", _locationIndex, _locationName];
+    
+    // Call the brute force function
+    if (!isNil "fnc_forceDestroyTaskCompletion") then {
+        [_locationIndex] call fnc_forceDestroyTaskCompletion;
+        true
+    } else {
+        systemChat "ERROR: fnc_forceDestroyTaskCompletion not found!";
+        false
+    };
+};
+
+// This integrates with the task system for proper task completion
+fnc_handleLocationDestruction = {
+    params ["_locationIndex"];
+    
+    // Ensure valid location index
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["handleLocationDestruction: Invalid location index: %1", _locationIndex];
+        false
+    };
+    
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    _locationData params ["_id", "_name", "_type", "_pos", "_intel", "_tasks", "_briefings", "_captured"];
+    
+    // Log the destruction
+    diag_log format ["DESTRUCTION SYSTEM: Location being destroyed: %1 (%2)", _name, _type];
+    
+    // 1. Find any active destroy tasks for this location and complete them
+    private _destroyTasksCompleted = false;
+    {
+        private _taskObj = _x;
+        private _taskId = "";
+        private _taskLocIndex = -1;
+        private _taskType = "";
+        
+        // Extract task data safely
+        if (count _taskObj > 0) then { _taskId = _taskObj select 0; };
+        if (count _taskObj > 1) then { _taskLocIndex = _taskObj select 1; };
+        if (count _taskObj > 2) then { _taskType = _taskObj select 2; };
+        
+        if (_taskLocIndex == _locationIndex && _taskType == "destroy") then {
+            diag_log format ["DESTRUCTION SYSTEM: Completing destroy task %1 for location %2", _taskId, _locationIndex];
+            
+            // Mark task as completed
+            [_taskId, true] call fnc_completeTask;
+            _destroyTasksCompleted = true;
+            diag_log "DESTRUCTION SYSTEM: Task successfully completed!";
+        };
+    } forEach MISSION_activeTasks;
+    
+    if (!_destroyTasksCompleted) then {
+        diag_log "DESTRUCTION SYSTEM: No active destroy tasks found for this location";
+    };
+    
+    // 2. Remove any resource benefits
+    if (!isNil "fnc_removeLocationResourceBonus") then {
+        [_locationIndex] call fnc_removeLocationResourceBonus;
+        diag_log format ["DESTRUCTION SYSTEM: Resource bonuses removed for location: %1", _name];
+    };
+    
+    // 3. Update marker to show destroyed state
+    private _markerName = format ["task_location_%1", _locationIndex];
+    if (markerType _markerName != "") then {
+        _markerName setMarkerColor "ColorBlack";
+        _markerName setMarkerAlpha 0.6;
+        _markerName setMarkerText format ["%1 (DESTROYED)", _name];
+        diag_log format ["DESTRUCTION SYSTEM: Updated marker for destroyed location: %1", _markerName];
+    };
+    
+    // 4. Mark location as permanently destroyed in data array
+    _locationData set [7, false]; // Set to not captured
+    
+    // Add permanent "destroyed" flag if it doesn't exist
+    if (count _locationData > 8) then {
+        _locationData set [8, true]; // Position 8: Destroyed flag
+    } else {
+        _locationData pushBack true; // Add destroyed flag
+    };
+    
+    // 5. Mark the reference object as destroyed
+    private _refObj = MISSION_locationObjects select _locationIndex;
+    if (!isNil "_refObj" && {!isNull _refObj}) then {
+        // Set the critical variable that the task completion code looks for
+        _refObj setVariable ["destroyed", true, true];
+        
+        // Ensure the object appears damaged
+        if (damage _refObj < 0.9) then {
+            _refObj setDamage 1;
+        };
+        
+        // Add visual effects if not already present
+        if (isNil {_refObj getVariable "destruction_effect"}) then {
+            private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
+            _fire attachTo [_refObj, [0, 0, 0]];
+            _refObj setVariable ["destruction_effect", _fire, true];
+            diag_log "DESTRUCTION SYSTEM: Created destruction effect (fire)";
+        };
+    };
+    
+    // 6. Notify player
+    if (hasInterface) then {
+        private _msg = format ["%1 has been completely destroyed. This location is no longer usable.", _name];
+        hint _msg;
+        systemChat _msg;
+    };
+    
+    diag_log "DESTRUCTION SYSTEM: Location destruction process completed successfully";
+    true
+};
+
+// Brute force function to complete all destroy tasks for a location
+// This doesn't rely on any existing structures and forces task completion
+fnc_forceDestroyTaskCompletion = {
+    params ["_locationIndex"];
+    
+    // First, log everything we can about the current state
+    diag_log "==================================================";
+    diag_log format ["FORCE COMPLETION: Starting for location index %1", _locationIndex];
+    
+    // Get location info if available
+    private _locationName = "Unknown";
+    private _locationType = "Unknown";
+    if (_locationIndex >= 0 && _locationIndex < count MISSION_LOCATIONS) then {
+        private _locationData = MISSION_LOCATIONS select _locationIndex;
+        if (count _locationData > 1) then { _locationName = _locationData select 1; };
+        if (count _locationData > 2) then { _locationType = _locationData select 2; };
+    };
+    diag_log format ["FORCE COMPLETION: Location: %1 (%2)", _locationName, _locationType];
+    
+    // Get the reference object
+    private _refObj = objNull;
+    if (!isNil "MISSION_locationObjects" && _locationIndex < count MISSION_locationObjects) then {
+        _refObj = MISSION_locationObjects select _locationIndex;
+    };
+    diag_log format ["FORCE COMPLETION: Reference object: %1 (Null: %2)", _refObj, isNull _refObj];
+    
+    // Log all active tasks
+    diag_log "ACTIVE TASKS:";
+    {
+        diag_log format ["Task: %1", _x];
+    } forEach MISSION_activeTasks;
+    
+    // APPROACH 1: Try to find and complete tasks using our expected structure
+    diag_log "APPROACH 1: Using active tasks array structure";
+    private _completedTasks = [];
+    {
+        // Try to extract task information safely
+        private _taskId = "";
+        private _taskLocIndex = -1;
+        private _taskType = "";
+        
+        // Handle possible array structure variations
+        if (typeName _x == "ARRAY") then {
+            if (count _x > 0) then { _taskId = _x select 0; };
+            if (count _x > 1) then { _taskLocIndex = _x select 1; };
+            if (count _x > 2) then { _taskType = _x select 2; };
+        };
+        
+        diag_log format ["Examining task: ID=%1, LocIdx=%2, Type=%3", _taskId, _taskLocIndex, _taskType];
+        
+        // Check if this is a destroy task for our location
+        if (_taskLocIndex == _locationIndex && _taskType == "destroy") then {
+            diag_log format ["FOUND MATCHING DESTROY TASK: %1", _taskId];
+            
+            // Try to complete it
+            if (!isNil "fnc_completeTask") then {
+                diag_log format ["Attempting to complete task %1 via fnc_completeTask", _taskId];
+                [_taskId, true] call fnc_completeTask;
+                _completedTasks pushBack _taskId;
+            } else {
+                diag_log "ERROR: fnc_completeTask not found";
+            };
+            
+            // Also try direct BIS function as backup
+            diag_log format ["Attempting to complete task %1 via BIS_fnc_taskSetState", _taskId];
+            [_taskId, "SUCCEEDED"] call BIS_fnc_taskSetState;
+        };
+    } forEach MISSION_activeTasks;
+    
+    // APPROACH 2: Try to complete tasks using BIS task system
+    diag_log "APPROACH 2: Using BIS task functions to find tasks";
+    private _allTaskIds = [];
+    
+    // Get all task IDs from the BIS task system
+    _allTaskIds = player call BIS_fnc_tasksUnit;
+    
+    diag_log format ["Found %1 tasks in BIS task system: %2", count _allTaskIds, _allTaskIds];
+    
+    // Look for destroy tasks related to this location
+    {
+        private _taskId = _x;
+        private _taskDestination = [_taskId] call BIS_fnc_taskDestination;
+        private _taskDescription = [_taskId] call BIS_fnc_taskDescription;
+        private _taskType = [_taskId] call BIS_fnc_taskType;
+        
+        diag_log format ["Task %1 - Destination: %2, Type: %3", _taskId, _taskDestination, _taskType];
+        
+        // Check description for location name
+        private _descriptionText = "";
+        if (count _taskDescription > 0) then {
+            _descriptionText = _taskDescription select 0;
+        };
+        
+        // If the task description contains our location name or is a destroy task at our location
+        if (_descriptionText find _locationName != -1 || 
+            (_taskType == "destroy" && _taskDestination distance (MISSION_LOCATIONS select _locationIndex select 3) < 100)) then {
+            
+            diag_log format ["Found likely matching task: %1", _taskId];
+            
+            // Complete it with both methods for good measure
+            [_taskId, "SUCCEEDED"] call BIS_fnc_taskSetState;
+            if (!isNil "fnc_completeTask") then {
+                [_taskId, true] call fnc_completeTask;
+            };
+            
+            _completedTasks pushBack _taskId;
+        };
+    } forEach _allTaskIds;
+    
+    // APPROACH 3: Brute force location destruction state
+    diag_log "APPROACH 3: Setting location destruction state";
+    
+    // Mark the location as destroyed in all possible ways
+    if (_locationIndex >= 0 && _locationIndex < count MISSION_LOCATIONS) then {
+        // Set destroyed in location data
+        (MISSION_LOCATIONS select _locationIndex) set [7, false]; // Not captured
+        if (count (MISSION_LOCATIONS select _locationIndex) > 8) then {
+            (MISSION_LOCATIONS select _locationIndex) set [8, true]; // Destroyed flag
+        } else {
+            (MISSION_LOCATIONS select _locationIndex) pushBack true;
+        };
+        
+        diag_log "Set location data destroyed flags";
+    };
+    
+    // Mark reference object as destroyed
+    if (!isNull _refObj) then {
+        _refObj setVariable ["destroyed", true, true];
+        _refObj setDamage 1;
+        diag_log "Set reference object destroyed flags and damage";
+        
+        // Add destruction effects
+        private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
+        _fire attachTo [_refObj, [0, 0, 0]];
+    };
+    
+    // Update map marker
+    private _markerName = format ["task_location_%1", _locationIndex];
+    if (markerType _markerName != "") then {
+        _markerName setMarkerColor "ColorBlack";
+        _markerName setMarkerAlpha 0.6;
+        _markerName setMarkerText format ["%1 (DESTROYED)", _locationName];
+        diag_log format ["Updated marker: %1", _markerName];
+    };
+    
+    // Summary
+    diag_log format ["COMPLETED TASKS: %1", _completedTasks];
+    diag_log "FORCE COMPLETION: Finished";
+    diag_log "==================================================";
+    
+    // Return to caller
+    if (count _completedTasks > 0) then {
+        systemChat format ["Force-completed %1 tasks for location %2", count _completedTasks, _locationName];
+        true
+    } else {
+        systemChat format ["No tasks found to complete for location %1", _locationName];
+        false
+    };
+};
+
+// Add these functions for direct debug console use
+// Keep them here for completeness
+
+// Simplest possible command to force destroy location by index
+// Usage: [1] call RTS_forceDestroyLocation;
+RTS_forceDestroyLocation = {
+    params [["_locationIndex", 0]];
+    
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        systemChat format ["Invalid location index: %1", _locationIndex];
+        false
+    };
+    
+    private _locationName = (MISSION_LOCATIONS select _locationIndex) select 1;
+    systemChat format ["Forcing destruction for location %1 (%2)...", _locationIndex, _locationName];
+    
+    // Call the brute force function
+    [_locationIndex] call fnc_forceDestroyTaskCompletion;
+    true
+};
+
+// Add this to your taskSystemArray.sqf file
+RTS_testObjectDestruction = {
+    params [["_locationIndex", 0]];
+    
+    // Validate location index
+    if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        systemChat format ["Invalid location index: %1", _locationIndex];
+        false
+    };
+    
+    // Get location info
+    private _locationName = (MISSION_LOCATIONS select _locationIndex) select 1;
+    systemChat format ["Testing destruction for location: %1 (Index: %2)", _locationName, _locationIndex];
+    
+    // Get reference object
+    private _refObj = if (_locationIndex < count MISSION_locationObjects) then {
+        MISSION_locationObjects select _locationIndex
+    } else {
+        objNull
+    };
+    
+    // Check reference object
+    if (isNull _refObj) exitWith {
+        systemChat format ["No reference object found for location %1", _locationName];
+        false
+    };
+    
+    // Set damage to 1
+    _refObj setDamage 1;
+    systemChat format ["Set damage to 1 for object at location %1", _locationName];
+    
+    // Add visual effect
+    private _pos = getPosATL _refObj;
+    "Bo_GBU12_LGB" createVehicle _pos;
+    
+    // Force task completion check
+    [] spawn {
+        sleep 1;
+        [] call fnc_checkTasksCompletion;
+        systemChat "Task completion check triggered";
+    };
+    
+    true
+};
+
+// Call this function from your trigger with:
+// [LOCATION_INDEX] call fnc_handleLocationDestruction;
+// Example for your trigger in the editor:
+/*
+if (damage thisObject == 1) then {
+    [1] call fnc_handleLocationDestruction; // Where 1 is your location index
+};
+*/
 
 // =====================================================================
 // INITIALIZATION - CALL THIS TO START THE SYSTEM
