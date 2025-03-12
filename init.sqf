@@ -11,6 +11,7 @@ if (hasInterface) then {
     // Load economy system
     [] execVM "scripts\economy\economyInit.sqf";
 	
+
 	// Load Task System
 	[] execVM "scripts\mission\taskSystemArray.sqf";
 	
@@ -26,6 +27,8 @@ if (hasInterface) then {
     
     // Initialize weapon toggle system for vehicles
     [] execVM "scripts\actions\vehicleActions\weaponToggleInit.sqf";
+	
+	[] execVM "scripts\mission\factoryResourceSystem.sqf";
 };
 
 [] execVM "scripts\towCargoGlobals.sqf";

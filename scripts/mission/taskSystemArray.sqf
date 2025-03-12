@@ -35,7 +35,7 @@ MISSION_LOCATIONS = [
         "Dover Harbor",                // Name
         "port",                        // Type
         [1000, 1000, 0],               // Position
-        0,                             // Intel level
+        100,                             // Intel level
         [                              // Available tasks
             ["move_to", "Move To", [["intelligence", 10]]],
             ["recon", "Recon", [["intelligence", 25]]],
@@ -482,7 +482,7 @@ fnc_getIntelLevel = {
     };
 };
 
-// Function to set a location as captured
+// Function to set a location as captured - UPDATED VERSION
 fnc_setCapturedLocation = {
     params ["_locationIndex", "_isCaptured"];
     
@@ -491,16 +491,34 @@ fnc_setCapturedLocation = {
         false
     };
     
+    // Get previous capture status to check for status change
+    private _wasCaptured = (MISSION_LOCATIONS select _locationIndex) select 7;
+    
     // Update captured status
     (MISSION_LOCATIONS select _locationIndex) set [7, _isCaptured];
     
     // Update marker
     [_locationIndex] call fnc_updateLocationMarker;
     
+    // Handle resource bonuses for factories and other production facilities
+    if (!isNil "fnc_applyLocationResourceBonus" && !isNil "fnc_removeLocationResourceBonus") then {
+        if (_isCaptured && !_wasCaptured) then {
+            // Location was just captured - apply resource bonus
+            [_locationIndex] call fnc_applyLocationResourceBonus;
+        };
+        
+        if (!_isCaptured && _wasCaptured) then {
+            // Location was just lost - remove resource bonus
+            [_locationIndex] call fnc_removeLocationResourceBonus;
+        };
+    } else {
+        diag_log "WARNING: Factory resource system functions not available, skipping resource bonus processing";
+    };
+    
     true
 };
 
-// Function to set a location as destroyed
+// Function to set a location as destroyed - UPDATED VERSION
 fnc_setDestroyedLocation = {
     params ["_locationIndex"];
     
@@ -508,6 +526,9 @@ fnc_setDestroyedLocation = {
         diag_log format ["Invalid location index for destruction: %1", _locationIndex];
         false
     };
+    
+    // Get capture status before destruction
+    private _wasCaptured = (MISSION_LOCATIONS select _locationIndex) select 7;
     
     // Get reference object
     private _refObj = MISSION_locationObjects select _locationIndex;
@@ -519,6 +540,11 @@ fnc_setDestroyedLocation = {
         // Add destruction effects
         private _fire = "test_EmptyObjectForFireBig" createVehicle (getPos _refObj);
         _fire attachTo [_refObj, [0, 0, 0]];
+    };
+    
+    // If this was a captured location providing resource bonuses, remove them
+    if (_wasCaptured && !isNil "fnc_removeLocationResourceBonus") then {
+        [_locationIndex] call fnc_removeLocationResourceBonus;
     };
     
     // Update marker (keep enemy-controlled)
@@ -1017,22 +1043,22 @@ fnc_completeTask = {
             };
         } forEach _taskReward;
         
-        // Handle capture/destroy effects
-        if (_taskType == "capture") then {
-            // Mark location as captured
-            [_locationIndex, true] call fnc_setCapturedLocation;
-            
-            hint format ["Location captured: %1", _name];
-            systemChat "Location has been captured and is now under friendly control.";
-        };
-        
-        if (_taskType == "destroy") then {
-            // Mark location as destroyed
-            [_locationIndex] call fnc_setDestroyedLocation;
-            
-            hint format ["Location destroyed: %1", _name];
-            systemChat "Location has been destroyed. Enemy can no longer use it.";
-        };
+					// Handle capture/destroy effects
+			if (_taskType == "capture") then {
+				// Mark location as captured
+				[_locationIndex, true] call fnc_setCapturedLocation;
+				
+				hint format ["Location captured: %1", _name];
+				systemChat "Location has been captured and is now under friendly control.";
+			};
+
+			if (_taskType == "destroy") then {
+				// Mark location as destroyed
+				[_locationIndex] call fnc_setDestroyedLocation;
+				
+				hint format ["Location destroyed: %1", _name];
+				systemChat "Location has been destroyed. Enemy can no longer use it.";
+};
     } else {
         // Failed task feedback
         hint format ["✗ Task Failed: %1 at %2", _taskType, _name];
