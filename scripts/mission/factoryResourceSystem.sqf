@@ -244,10 +244,7 @@ fnc_setCapturedLocation = {
     _result
 };
 
-// Also hook into the destroyed location function
-if (isNil "original_fnc_setDestroyedLocation") then {
-    original_fnc_setDestroyedLocation = fnc_setDestroyedLocation;
-};
+
 
 // Create new version that calls the original and adds our factory resource logic
 fnc_setDestroyedLocation = {

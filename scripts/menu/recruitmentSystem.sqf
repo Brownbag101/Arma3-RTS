@@ -12,7 +12,7 @@ RTS_fnc_recruitOrder = {};
 
 // Configuration
 RTS_recruitmentConfig = [
-    ["unitCost", 10],          // Manpower cost per unit
+    ["unitCost", 1],          // Manpower cost per unit
     ["fuelCost", 10],          // Base fuel cost per unit
     ["cooldownTime", 30],      // Cooldown time in seconds
     ["maxRecruits", 10],       // Maximum number of recruits per batch
@@ -61,27 +61,60 @@ RTS_recruitmentCooldown = false;
 RTS_fnc_getRecruitMarkerPos = {
     params ["_markerType"];
     
-    private _markerName = RTS_recruitmentConfig select 6 select 1 + _markerType;
-    private _fallbackPosition = [];
+    // Validate marker type
+    if (isNil "_markerType" || {_markerType == ""}) exitWith {
+        diag_log "ERROR: Invalid marker type passed to RTS_fnc_getRecruitMarkerPos";
+        [0,0,0]
+    };
+    
+    // Safely get the marker prefix - with better error handling
+    private _markerPrefix = "";
+    if (!isNil "RTS_recruitmentConfig") then {
+        if (count RTS_recruitmentConfig > 6) then {
+            private _configEntry = RTS_recruitmentConfig select 6;
+            if (count _configEntry > 1) then {
+                _markerPrefix = _configEntry select 1;
+            };
+        };
+    };
+    
+    // Use format instead of + for string concatenation (safer method)
+    private _markerName = format ["%1%2", _markerPrefix, _markerType];
     
     // Find fallback position in marker definitions
-    {
-        _x params ["_type", "_pos"];
-        if (_type == _markerType) exitWith {
-            _fallbackPosition = _pos;
-        };
-    } forEach RTS_recruitMarkers;
+    private _fallbackPosition = [0,0,0]; // Default fallback
+    
+    if (!isNil "RTS_recruitMarkers") then {
+        {
+            if (count _x >= 2) then {
+                private _type = _x select 0;
+                private _pos = _x select 1;
+                if (_type == _markerType) exitWith {
+                    _fallbackPosition = _pos;
+                };
+            };
+        } forEach RTS_recruitMarkers;
+    };
+    
+    // Check marker in a safer way
+    private _markerExists = false;
+    try {
+        _markerExists = markerType _markerName != "";
+    } catch {
+        diag_log format ["ERROR checking marker: %1", _markerName];
+        _markerExists = false;
+    };
     
     // Use marker if it exists, otherwise use fallback
-    if (markerType _markerName != "") then {
+    if (_markerExists) then {
         getMarkerPos _markerName
     } else {
         // Log warning when using fallback
         systemChat format ["Warning: Marker '%1' not found, using fallback position", _markerName];
+        diag_log format ["Using fallback position for %1", _markerName];
         _fallbackPosition
     };
 };
-
 // Function to calculate recruitment cost
 RTS_fnc_calculateRecruitmentCost = {
     params ["_numUnits"];
@@ -342,7 +375,9 @@ RTS_fnc_initiateRecruitment = {
     true
 };
 
-// Function to spawn recruits and manage plane movement
+// ENHANCED SPAWNING FUNCTION WITH IMPROVED LANDING SEQUENCE
+// Replace the entire RTS_fnc_spawnRecruits function with this version
+
 RTS_fnc_spawnRecruits = {
     params ["_numUnits"];
     
@@ -358,57 +393,212 @@ RTS_fnc_spawnRecruits = {
     private _assemblyPos = ["assembly"] call RTS_fnc_getRecruitMarkerPos;
     private _despawnPos = ["despawn"] call RTS_fnc_getRecruitMarkerPos;
     
-    // Spawn plane at spawn position
+    // Ensure landing position is on ground level
+    _landPos set [2, 0];
+    
+    // Log positions for debugging
+    diag_log format ["Positions - Spawn: %1, Land: %2, Assembly: %3, Despawn: %4", 
+        _spawnPos, _landPos, _assemblyPos, _despawnPos];
+    
+    // Spawn plane at proper altitude
     private _plane = createVehicle [_planeType, _spawnPos, [], 0, "FLY"];
+    _plane setPosASL [_spawnPos#0, _spawnPos#1, (_spawnPos#2) max 300]; // Ensure minimum altitude
     _plane flyInHeight 300;
     
-    // Create crew for the plane
-    createVehicleCrew _plane;
+    // Better error handling for plane
+    if (isNull _plane) exitWith {
+        diag_log "ERROR: Failed to create transport aircraft";
+        hint "Failed to create transport aircraft.";
+        systemChat "ERROR: Could not create transport aircraft.";
+        false
+    };
     
-    // Move plane to landing zone
-    _plane move _landPos;
+    // Create crew for the plane with better group management
+    private _planeGroup = createGroup [side player, true];
+    private _crew = createVehicleCrew _plane;
+    {
+        [_x] joinSilent _planeGroup;
+    } forEach crew _plane;
+    
+    _planeGroup setCombatMode "BLUE"; // Prevent engaging targets
+    _planeGroup setBehaviour "CARELESS"; // Make flight path more predictable
+    
+    // Give the plane some initial velocity in the right direction
+    private _dir = _plane getDir _landPos;
+    _plane setDir _dir;
+    _plane setVelocity [(sin _dir) * 50, (cos _dir) * 50, 0];
+    
+    // Explicitly set waypoints for better control
+    private _wp1 = _planeGroup addWaypoint [_landPos getPos [1000, (_landPos getDir _spawnPos)], 0];
+    _wp1 setWaypointType "MOVE";
+    _wp1 setWaypointSpeed "NORMAL";
+    
+    private _wp2 = _planeGroup addWaypoint [_landPos, 0];
+    _wp2 setWaypointType "MOVE";
+    _wp2 setWaypointSpeed "LIMITED";
+    
+    // Move plane to landing zone using doMove as backup
+    _plane doMove _landPos;
     
     // Notification
     hint "Transport aircraft is en route with new recruits.";
     systemChat "Transport aircraft is en route with new recruits.";
     
-    // Wait for the plane to reach the landing zone
-    waitUntil {_plane distance _landPos < 200 || !(alive _plane)};
+    // More detailed debug output
+    diag_log format ["Plane created: %1, Crew: %2", _plane, count crew _plane];
+    
+    // Wait for the plane to approach the landing zone
+    // IMPROVED: More detailed approach logic with debug output
+    private _timeout = time + 300; // 5 minute timeout
+    private _reachedApproach = false;
+    
+    while {time < _timeout && !_reachedApproach && alive _plane} do {
+        private _distance = _plane distance _landPos;
+        
+        if (_distance < 300) then {
+            _reachedApproach = true;
+            diag_log format ["Plane has reached approach point: distance = %1m", _distance];
+        } else {
+            // Periodically log progress
+            if (time % 10 < 0.1) then {
+                diag_log format ["Plane approaching: distance = %1m, altitude = %2m", 
+                    _distance, (getPosASL _plane) select 2];
+            };
+        };
+        
+        // Adjust course if needed
+        if (time % 30 < 0.1) then {
+            _plane doMove _landPos;
+            _plane flyInHeight 100;
+        };
+        
+        sleep 1;
+    };
+    
+    // Check if we timed out
+    if (time >= _timeout) exitWith {
+        diag_log "ERROR: Aircraft approach timed out";
+        hint "Transport aircraft failed to reach landing zone.";
+        systemChat "Transport aircraft failed to reach landing zone.";
+        
+        // Clean up
+        {deleteVehicle _x} forEach (crew _plane);
+        deleteVehicle _plane;
+        deleteGroup _planeGroup;
+        false
+    };
     
     // Exit if plane was destroyed
     if (!alive _plane) exitWith {
         hint "Transport aircraft was destroyed en route.";
         systemChat "Transport aircraft was destroyed en route.";
+        false
     };
     
-    // Prepare for landing
-    _plane land "LAND";
-    _plane flyInHeight 0;
-    
-    // Notification
+    // IMPROVED LANDING SEQUENCE
+    // -------------------------
+    diag_log "Beginning landing sequence";
     hint "Transport aircraft is beginning landing approach.";
     systemChat "Transport aircraft is beginning landing approach.";
     
-    // Wait for the plane to touch down
-    waitUntil {isTouchingGround _plane || {(getPos _plane) select 2 < 1} || !(alive _plane)};
+    // Set to land mode
+    _plane land "LAND";
     
-    // Exit if plane was destroyed
+    // Gradually reduce altitude
+    _plane flyInHeight 50;
+    sleep 2;
+    _plane flyInHeight 20;
+    sleep 2;
+    _plane flyInHeight 5;
+    sleep 1;
+    _plane flyInHeight 0;
+    
+    // Delete waypoints to prevent interference
+    while {count waypoints _planeGroup > 0} do {
+        deleteWaypoint [_planeGroup, 0];
+    };
+    
+    // Add a landing waypoint
+    private _wpLand = _planeGroup addWaypoint [_landPos, 0];
+    _wpLand setWaypointType "MOVE";
+    _wpLand setWaypointSpeed "LIMITED";
+    
+    // Force the plane to move to landing position
+    _plane doMove _landPos;
+    
+    // Log landing attempts
+    diag_log format ["Landing attempt initiated at position: %1", _landPos];
+    
+    // Wait for the plane to touch down with improved detection and timeout
+    private _landingTimeout = time + 120; // 2 minute timeout for landing
+    private _landed = false;
+    private _touchedGround = false;
+    
+    while {time < _landingTimeout && !_landed && alive _plane} do {
+        private _altitude = (getPosATL _plane) select 2;
+        private _velocity = vectorMagnitude (velocity _plane);
+        
+        // Check multiple landing conditions
+        if (isTouchingGround _plane) then {
+            _touchedGround = true;
+            diag_log "Aircraft has touched the ground";
+        };
+        
+        if (_altitude < 1) then {
+            diag_log format ["Aircraft at low altitude: %1m", _altitude];
+        };
+        
+        // Consider landing complete when low and slow
+        if ((_altitude < 1 || _touchedGround) && _velocity < 5) then {
+            _landed = true;
+            diag_log "Aircraft has landed successfully";
+        };
+        
+        // Log progress every 5 seconds
+        if (time % 5 < 0.1) then {
+            diag_log format ["Landing progress: altitude = %1m, velocity = %2, touchedGround = %3", 
+                _altitude, _velocity, _touchedGround];
+        };
+        
+        // Adjust course periodically
+        if (time % 15 < 0.1) then {
+            _plane doMove _landPos;
+            _plane flyInHeight 0;
+        };
+        
+        sleep 0.5;
+    };
+    
+    // Check if landing was successful
+    if (!_landed) then {
+        diag_log "WARNING: Normal landing failed, forcing position";
+        
+        // Force landing if normal procedures failed
+        _plane setPosATL [_landPos select 0, _landPos select 1, 0];
+        _plane setVelocity [0, 0, 0];
+        _landed = true;
+    };
+    
+    // Exit if plane was destroyed during landing
     if (!alive _plane) exitWith {
         hint "Transport aircraft was destroyed during landing.";
         systemChat "Transport aircraft was destroyed during landing.";
+        false
     };
     
     // Additional wait to ensure the plane is stable
-    sleep 5;
+    sleep 3;
     
-    // Ensure the plane comes to a complete stop
-    _plane setVelocity [0, 0, 0];
     
-    diag_log "Plane has landed";
+    
+    diag_log "Plane has landed and stopped";
     
     // Notification
     hint "Transport aircraft has landed. Unloading troops...";
     systemChat "Transport aircraft has landed. Unloading troops...";
+    
+    // TROOP DEPLOYMENT
+    // ---------------
     
     // Spawn and unload troops
     private _group = createGroup [side player, true]; // true for deleteWhenEmpty
@@ -455,6 +645,9 @@ RTS_fnc_spawnRecruits = {
     // Move troops to assembly point
     _group move _assemblyPos;
     
+    // AIRCRAFT DEPARTURE
+    // -----------------
+    
     // Wait a moment before taking off
     sleep 5;
     
@@ -462,14 +655,28 @@ RTS_fnc_spawnRecruits = {
     hint "Transport aircraft is departing.";
     systemChat "Transport aircraft is departing.";
     
+    // Clear any remaining waypoints
+    while {count waypoints _planeGroup > 0} do {
+        deleteWaypoint [_planeGroup, 0];
+    };
+    
+    // Set up departure waypoint
+    private _wpDepart = _planeGroup addWaypoint [_despawnPos, 0];
+    _wpDepart setWaypointType "MOVE";
+    _wpDepart setWaypointSpeed "NORMAL";
+    
     // Take off and move plane to despawn point
     _plane flyInHeight 100;
     _plane doMove _despawnPos;
     
+    
+    
     // Wait for the plane to reach the despawn point or be destroyed
+    private _departureTimeout = time + 300; // 5 minute timeout
+    
     waitUntil {
         sleep 1;
-        (_plane distance _despawnPos < 200) || !(alive _plane)
+        (_plane distance _despawnPos < 200) || !(alive _plane) || (time > _departureTimeout)
     };
     
     // Check if the plane is still alive before deleting
@@ -487,11 +694,17 @@ RTS_fnc_spawnRecruits = {
         diag_log "Plane was destroyed before reaching despawn point";
     };
     
+    // Clean up the group
+    deleteGroup _planeGroup;
+    
     // Final notification
     hint "New recruits have arrived and are ready for orders.";
     systemChat "New recruits have arrived and are ready for orders.";
     
-    diag_log "Recruitment process completed";
+    diag_log "Recruitment process completed successfully";
+    
+    // Return success
+    true
 };
 
 // Function to handle recruitment cooldown
@@ -534,7 +747,47 @@ RTS_fnc_addRecruitmentResources = {
 
 // Function to handle the recruitment order - main entry point
 RTS_fnc_recruitOrder = {
+    // First ensure all required markers exist
+    call RTS_fnc_ensureRecruitmentMarkers;
+    
+    // Check if recruitment is on cooldown
+    if (RTS_recruitmentCooldown) exitWith {
+        private _cooldownTime = RTS_recruitmentConfig select 2 select 1;
+        hint format ["Recruitment is on cooldown. Please wait %1 seconds.", _cooldownTime];
+        systemChat "Recruitment is on cooldown. Please wait.";
+        false
+    };
+    
+    // Check if Zeus interface is active
+    if (isNull findDisplay 312) then {
+        systemChat "Zeus interface required for recruitment. Press Y to open Zeus.";
+    };
+    
+    // Check if economy system is available
+    private _economyAvailable = !isNil "RTS_fnc_getResource";
+    if (!_economyAvailable) then {
+        systemChat "Warning: Economy system not detected. Resource costs may not apply correctly.";
+    };
+    
+    // Verify recruitment configuration exists
+    if (isNil "RTS_recruitmentConfig") exitWith {
+        systemChat "ERROR: Recruitment configuration not found!";
+        diag_log "Recruitment system error: RTS_recruitmentConfig is nil";
+        false
+    };
+    
+    // Log recruitment session start
+    diag_log "==== RECRUITMENT SESSION STARTED ====";
+    diag_log format ["Current Resources - Manpower: %1, Fuel: %2", 
+        ["manpower"] call RTS_fnc_getResource, 
+        ["fuel"] call RTS_fnc_getResource
+    ];
+    
+    // Show the recruitment dialog
     [] call RTS_fnc_showRecruitmentDialog;
+    
+    // Return success
+    true
 };
 
 // Add test command for direct access

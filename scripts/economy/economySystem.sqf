@@ -5,26 +5,28 @@
 if (isNil "RTS_resources") then {
     // Main resource storage
     RTS_resources = [
-        ["wood", 500],      // Starting with 500 wood
-        ["iron", 300],      // Starting with 300 iron
-        ["oil", 200],       // Starting with 200 oil
-        ["rubber", 100],    // Starting with 100 rubber
-        ["aluminum", 150],  // Starting with 150 aluminum
-        ["training", 100],  // Starting with 100 training points
-        ["manpower", 100],  // Starting with 100 manpower
-        ["fuel", 1000]      // Starting with 1000 fuel
+        ["wood", 500],       // Starting with 500 wood
+        ["iron", 300],       // Starting with 300 iron
+        ["oil", 200],        // Starting with 200 oil
+        ["rubber", 100],     // Starting with 100 rubber
+        ["aluminum", 150],   // Starting with 150 aluminum
+        ["training", 100],   // Starting with 100 training points
+        ["manpower", 100],   // Starting with 100 manpower
+        ["fuel", 1000],      // Starting with 1000 fuel
+        ["research", 1000]   // Starting with 1000 research points - ADDED!
     ];
     
     // Resource income rates (per minute)
     RTS_resourceIncome = [
-        ["wood", 10],       // 10 wood per minute
-        ["iron", 5],        // 5 iron per minute
-        ["oil", 3],         // 3 oil per minute
-        ["rubber", 2],      // 2 rubber per minute
-        ["aluminum", 2],    // 2 aluminum per minute
-        ["training", 1],    // 1 training point per minute
-        ["manpower", 2],    // 2 manpower per minute
-        ["fuel", 5]         // 5 fuel per minute
+        ["wood", 10],        // 10 wood per minute
+        ["iron", 5],         // 5 iron per minute
+        ["oil", 3],          // 3 oil per minute
+        ["rubber", 2],       // 2 rubber per minute
+        ["aluminum", 2],     // 2 aluminum per minute
+        ["training", 1],     // 1 training point per minute
+        ["manpower", 2],     // 2 manpower per minute
+        ["fuel", 5],         // 5 fuel per minute
+        ["research", 2]      // 2 research points per minute - ADDED!
     ];
     
     // Last time resources were updated

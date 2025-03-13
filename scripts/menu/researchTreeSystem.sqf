@@ -7,6 +7,71 @@ if (isNil "MISSION_researchPoints") then {
     MISSION_researchPoints = 1000; // Starting research points
 };
 
+// Synchronize with economy system
+[] spawn {
+    // Wait a bit to ensure economy system is initialized
+    sleep 3;
+    
+    // Initial synchronization from legacy variable to economy system
+    if (!isNil "MISSION_researchPoints" && !isNil "RTS_resources") then {
+        private _index = RTS_resources findIf {(_x select 0) == "research"};
+        if (_index != -1) then {
+            // Update economy system with current research points
+            RTS_resources set [_index, ["research", MISSION_researchPoints]];
+            systemChat "Research points synchronized with economy system";
+        } else {
+            // If research isn't in economy yet, add it
+            RTS_resources pushBack ["research", MISSION_researchPoints];
+            
+            // Also add to income if needed
+            private _incomeIndex = RTS_resourceIncome findIf {(_x select 0) == "research"};
+            if (_incomeIndex == -1) then {
+                RTS_resourceIncome pushBack ["research", 2]; // 2 per minute
+            };
+            
+            systemChat "Research points added to economy system";
+        };
+    };
+    
+    // Create two-way sync functions
+    fnc_syncResearchToEconomy = {
+        private _index = RTS_resources findIf {(_x select 0) == "research"};
+        if (_index != -1) then {
+            RTS_resources set [_index, ["research", MISSION_researchPoints]];
+        };
+    };
+    
+    fnc_syncEconomyToResearch = {
+        private _index = RTS_resources findIf {(_x select 0) == "research"};
+        if (_index != -1) then {
+            MISSION_researchPoints = (RTS_resources select _index) select 1;
+        };
+    };
+    
+    // Override existing functions to maintain sync
+    // Store original functions
+    if (isNil "original_RTS_fnc_modifyResource") then {
+        original_RTS_fnc_modifyResource = RTS_fnc_modifyResource;
+    };
+    
+    // Create new modified function that syncs changes
+    fnc_modifyResearchPoints = {
+    params ["_amount"];
+    
+    // Update legacy variable
+    MISSION_researchPoints = MISSION_researchPoints + _amount;
+    
+    // Also update in economy system
+    ["research", _amount] call RTS_fnc_modifyResource;
+	};
+    
+    // Continuous monitoring to ensure sync
+    while {true} do {
+        call fnc_syncEconomyToResearch;
+        sleep 30; // Check every 30 seconds
+    };
+};
+
 // Track completed research items
 if (isNil "MISSION_completedResearch") then {
     MISSION_completedResearch = [];
