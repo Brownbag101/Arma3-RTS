@@ -37,10 +37,11 @@ MISSION_LOCATIONS = [
         [1000, 1000, 0],               // Position
         0,                             // Intel level
         [                              // Available tasks
-            ["move_to", "Move To", [["intelligence", 10]]],
+            ["move_to", "Move To", [["training", 10]]],
             ["recon", "Recon", [["intelligence", 25]]],
             ["capture", "Capture", [["manpower", 100], ["oil", 50], ["rubber", 25]]],
-            ["destroy", "Destroy", [["intelligence", 50]]]
+            ["destroy", "Destroy", [["intelligence", 50]]],
+			["patrol", "Patrol", [["training", 10]]]
         ],
         [                              // Briefing texts
             "Unknown coastal facility detected. Reconnaissance required to identify.",
@@ -62,7 +63,8 @@ MISSION_LOCATIONS = [
             ["move_to", "Move To", [["intelligence", 10]]],
             ["recon", "Recon", [["intelligence", 25]]],
             ["capture", "Capture", [["rubber", 75], ["iron", 150], ["oil", 50]]],
-            ["destroy", "Destroy", [["intelligence", 75]]]
+            ["destroy", "Destroy", [["intelligence", 75]]],
+			["patrol", "Patrol", [["training", 10]]]
         ],
         [                              // Briefing texts
             "Unknown industrial facility detected. Reconnaissance required.",
@@ -106,7 +108,8 @@ MISSION_LOCATIONS = [
             ["move_to", "Move To", [["intelligence", 10]]],
             ["recon", "Recon", [["intelligence", 50]]],
             ["capture", "Capture", [["manpower", 150], ["intelligence", 200]]],
-            ["destroy", "Destroy", [["intelligence", 150]]]
+            ["destroy", "Destroy", [["intelligence", 150]]],
+			["patrol", "Patrol", [["training", 10]]]
         ],
         [                              // Briefing texts
             "Unknown command facility detected. High-value target.",
@@ -788,7 +791,7 @@ fnc_createTask = {
                 
                 diag_log format ["Patrol task: %1 time elapsed, unit present: %2", _timeInArea, _anyUnitPresent];
                 
-                (_timeInArea > 300) && _anyUnitPresent
+                (_timeInArea > 30) && _anyUnitPresent
             };
         };
         case "capture": {
@@ -1584,7 +1587,7 @@ fnc_openTaskUI = {
     _unitPanel ctrlCommit 0;
     
     // Create unit selection combo box
-    private _unitCombo = _display ctrlCreate ["RscCombo", 9401];
+    private _unitCombo = _display ctrlCreate ["RscCombo", -1];
     _unitCombo ctrlSetPosition [0.13 * safezoneW + safezoneX, 0.735 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
     
     // Add available units/groups - function will populate it
@@ -1660,7 +1663,7 @@ fnc_openTaskUI = {
 // Function to populate unit combo box
 fnc_populateUnitCombo = {
     private _display = findDisplay -1;
-    private _unitCombo = _display displayCtrl 9401;
+    private _unitCombo = _display displayCtrl -1;
     
     // Clear combo box
     lbClear _unitCombo;
@@ -1918,7 +1921,7 @@ fnc_confirmTask = {
     private _display = findDisplay -1;
     
     // Get selected unit(s)
-    private _unitCombo = _display displayCtrl 9401;
+    private _unitCombo = _display displayCtrl -1;
     private _selIndex = lbCurSel _unitCombo;
     
     if (_selIndex == -1) exitWith {
