@@ -264,18 +264,26 @@ fnc_updateLocationMarker = {
     private _locationData = MISSION_LOCATIONS select _locationIndex;
     _locationData params ["_id", "_name", "_type", "_pos", "_intel", "_tasks", "_briefings", "_captured"];
     
+    // Check if location is destroyed (position 9 in the array)
+    private _isDestroyed = false;
+    if (count _locationData > 9) then {
+        _isDestroyed = _locationData select 9;
+    };
+    
     // Get marker name
     private _markerName = format ["task_location_%1", _locationIndex];
     
-    // Set marker type based on intel and location type
+    // Set marker properties based on status
     private _markerType = "mil_unknown";
     private _markerColor = "ColorBlack";
     private _markerText = "?";
+    private _markerAlpha = 1;
     
-    if (_captured) then {
-        // Player controlled location
-        _markerColor = "ColorGreen";
-        _markerText = _type;
+    // Handle destroyed locations first
+    if (_isDestroyed) then {
+        _markerColor = "ColorBlack";
+        _markerText = format ["%1 (DESTROYED)", _type];
+        _markerAlpha = 0.6;
         
         switch (_type) do {
             case "factory": { _markerType = "loc_Stack"; };
@@ -285,10 +293,10 @@ fnc_updateLocationMarker = {
             default { _markerType = "loc_Ruin"; };
         };
     } else {
-        // Enemy controlled location
-        if (_intel >= TASK_INTEL_COMPLETE) then {
-            // Full intel
-            _markerColor = "ColorRed";
+        // Handle normal locations as before
+        if (_captured) then {
+            // Player controlled location
+            _markerColor = "ColorGreen";
             _markerText = _type;
             
             switch (_type) do {
@@ -299,16 +307,31 @@ fnc_updateLocationMarker = {
                 default { _markerType = "loc_Ruin"; };
             };
         } else {
-            if (_intel >= TASK_INTEL_BASIC) then {
-                // Basic intel
-                _markerColor = "ColorOrange";
+            // Enemy controlled location
+            if (_intel >= TASK_INTEL_COMPLETE) then {
+                // Full intel
+                _markerColor = "ColorRed";
                 _markerText = _type;
-                _markerType = "mil_unknown";
+                
+                switch (_type) do {
+                    case "factory": { _markerType = "loc_Stack"; };
+                    case "port": { _markerType = "loc_Anchor"; };
+                    case "airfield": { _markerType = "loc_Helipad"; };
+                    case "hq": { _markerType = "loc_Bunker"; };
+                    default { _markerType = "loc_Ruin"; };
+                };
             } else {
-                // Unknown
-                _markerColor = "ColorBlack";
-                _markerText = "?";
-                _markerType = "mil_unknown";
+                if (_intel >= TASK_INTEL_BASIC) then {
+                    // Basic intel
+                    _markerColor = "ColorOrange";
+                    _markerText = _type;
+                    _markerType = "mil_unknown";
+                } else {
+                    // Unknown
+                    _markerColor = "ColorBlack";
+                    _markerText = "?";
+                    _markerType = "mil_unknown";
+                };
             };
         };
     };
@@ -317,6 +340,7 @@ fnc_updateLocationMarker = {
     _markerName setMarkerTypeLocal _markerType;
     _markerName setMarkerColorLocal _markerColor;
     _markerName setMarkerTextLocal _markerText;
+    _markerName setMarkerAlpha _markerAlpha;
 };
 
 // Function to get the briefing text based on intel level
@@ -1693,70 +1717,174 @@ fnc_selectLocation = {
     
     private _display = findDisplay -1;
     
+    // Safety check for valid display
+    if (isNull _display) exitWith {
+        diag_log "fnc_selectLocation: Display is null!";
+    };
+    
+    // Safety check for valid location index
+    if (isNil "_locationIndex" || _locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
+        diag_log format ["fnc_selectLocation: Invalid location index: %1", _locationIndex];
+        
+        // Update info text to show error
+        private _infoText = _display displayCtrl 9104;
+        if (!isNull _infoText) then {
+            _infoText ctrlSetStructuredText parseText "<t color='#FF0000'>Error: Invalid location selected.</t>";
+        };
+    };
+    
+    // Check if location is destroyed before proceeding
+    private _isDestroyed = false;
+    try {
+        _isDestroyed = [_locationIndex] call fnc_isLocationDestroyed;
+    } catch {
+        diag_log format ["Error checking destroyed status in selectLocation: %1", _exception];
+    };
+    
+    if (_isDestroyed) exitWith {
+        // Provide feedback and prevent selection
+        private _infoText = _display displayCtrl 9104;
+        
+        if (!isNull _infoText) then {
+            private _locationData = MISSION_LOCATIONS select _locationIndex;
+            private _locationName = "Unknown";
+            
+            if (count _locationData > 1) then {
+                _locationName = _locationData select 1;
+            };
+            
+            _infoText ctrlSetStructuredText parseText format [
+                "<t size='1.2'>%1</t><br/>" +
+                "<t color='#FF0000'>DESTROYED</t><br/><br/>" +
+                "This location has been destroyed and is no longer available for operations.",
+                _locationName
+            ];
+        };
+        
+        // Disable all task buttons
+        {
+            _x params ["_taskId", "_taskName", "_requiredIntel"];
+            private _button = _display displayCtrl (9300 + _forEachIndex);
+            if (!isNull _button) then {
+                _button ctrlEnable false;
+                _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 0.5];
+            };
+        } forEach TASK_TYPES;
+        
+        // Update confirm button
+        private _confirmButton = _display displayCtrl 9500;
+        if (!isNull _confirmButton) then {
+            _confirmButton ctrlEnable false;
+        };
+        
+        // Set selected location to -1 to indicate no valid selection
+        MISSION_selectedLocation = -1;
+        MISSION_selectedTask = "";
+    };
+    
+    // Safe extraction of location data
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    
+    // Error handling for invalid location data
+    if (count _locationData < 7) exitWith {
+        diag_log format ["fnc_selectLocation: Location data at index %1 is incomplete", _locationIndex];
+        
+        private _infoText = _display displayCtrl 9104;
+        if (!isNull _infoText) then {
+            _infoText ctrlSetStructuredText parseText "<t color='#FF0000'>Error: Location data is corrupted.</t>";
+        };
+    };
+    
+    // Safely extract parameters with defaults
+    private _id = _locationData param [0, "unknown_id"];
+    private _name = _locationData param [1, "Unknown Location"];
+    private _type = _locationData param [2, "unknown"];
+    private _pos = _locationData param [3, [0,0,0]];
+    private _intel = _locationData param [4, 0];
+    private _tasks = _locationData param [5, []];
+    private _briefings = _locationData param [6, []];
+    private _captured = _locationData param [7, false];
+    
     // Update selected location
     MISSION_selectedLocation = _locationIndex;
     
-    // Get location data
-    private _locationData = MISSION_LOCATIONS select _locationIndex;
-    _locationData params ["_id", "_name", "_type", "_pos", "_intel", "_tasks", "_briefings", "_captured"];
-    
     // Update intel bar
     private _intelBar = _display displayCtrl 9103;
-    _intelBar progressSetPosition (_intel / 100);
+    if (!isNull _intelBar) then {
+        _intelBar progressSetPosition (_intel / 100);
+    };
     
     // Update info text
     private _infoText = _display displayCtrl 9104;
-    private _briefing = [_locationIndex] call fnc_getLocationBriefing;
-    
-    private _intelLevel = [_intel] call fnc_getIntelLevel;
-    private _intelColor = switch (_intelLevel) do {
-        case "complete": { "#00FF00" }; // Green
-        case "basic": { "#FFFF00" }; // Yellow
-        default { "#FF0000" }; // Red
+    if (!isNull _infoText) then {
+        private _briefing = "No information available.";
+        
+        try {
+            _briefing = [_locationIndex] call fnc_getLocationBriefing;
+        } catch {
+            diag_log format ["Error getting briefing: %1", _exception];
+        };
+        
+        private _intelLevel = "unknown";
+        try {
+            _intelLevel = [_intel] call fnc_getIntelLevel;
+        } catch {
+            diag_log format ["Error getting intel level: %1", _exception];
+        };
+        
+        private _intelColor = switch (_intelLevel) do {
+            case "complete": { "#00FF00" }; // Green
+            case "basic": { "#FFFF00" }; // Yellow
+            default { "#FF0000" }; // Red
+        };
+        
+        _infoText ctrlSetStructuredText parseText format [
+            "<t size='1.2'>%1</t><br/>" +
+            "<t color='%2'>Intelligence: %3%4</t><br/><br/>" +
+            "%5",
+            _name,
+            _intelColor,
+            round _intel,
+            "%",
+            _briefing
+        ];
     };
     
-    _infoText ctrlSetStructuredText parseText format [
-        "<t size='1.2'>%1</t><br/>" +
-        "<t color='%2'>Intelligence: %3%4</t><br/><br/>" +
-        "%5",
-        _name,
-        _intelColor,
-        round _intel,
-        "%",
-        _briefing
-    ];
-    
-    // Update available tasks - FIXED to use correct control IDs
+    // Update available tasks
     {
         _x params ["_taskId", "_taskName", "_requiredIntel"];
         private _button = _display displayCtrl (9300 + _forEachIndex);
         
-        // Enable button if:
-        // 1. We have enough intel
-        // 2. Special case for 'defend' - only available for player-controlled locations
-        private _enabled = _intel >= _requiredIntel;
-        
-        if (_taskId == "defend") then {
-            _enabled = _enabled && _captured;
-        };
-        
-        if (_taskId == "capture" || _taskId == "destroy") then {
-            _enabled = _enabled && !_captured;
-        };
-        
-        _button ctrlEnable _enabled;
-        
-        // Update button color if selected
-        if (MISSION_selectedTask == _taskId) then {
-            _button ctrlSetBackgroundColor [0.3, 0.3, 0.7, 1];
-        } else {
-            _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+        if (!isNull _button) then {
+            // Enable button if:
+            // 1. We have enough intel
+            // 2. Special case for 'defend' - only available for player-controlled locations
+            private _enabled = _intel >= _requiredIntel;
+            
+            if (_taskId == "defend") then {
+                _enabled = _enabled && _captured;
+            };
+            
+            if (_taskId == "capture" || _taskId == "destroy") then {
+                _enabled = _enabled && !_captured;
+            };
+            
+            _button ctrlEnable _enabled;
+            
+            // Update button color if selected
+            if (MISSION_selectedTask == _taskId) then {
+                _button ctrlSetBackgroundColor [0.3, 0.3, 0.7, 1];
+            } else {
+                _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+            };
         };
     } forEach TASK_TYPES;
     
     // Update confirm button
     private _confirmButton = _display displayCtrl 9500;
-    _confirmButton ctrlEnable (MISSION_selectedTask != "");
+    if (!isNull _confirmButton) then {
+        _confirmButton ctrlEnable (MISSION_selectedTask != "");
+    };
 };
 
 // Function to select a task
@@ -1871,20 +1999,44 @@ fnc_updateTaskUI = {
 fnc_handleLocationDestruction = {
     params ["_locationIndex"];
     
-    // Ensure valid location index
+    // Extra error handling
+    if (isNil "_locationIndex") exitWith {
+        diag_log "ERROR: locationIndex is nil in fnc_handleLocationDestruction";
+        false
+    };
+    
+    // Ensure valid location index with better error handling
     if (_locationIndex < 0 || _locationIndex >= count MISSION_LOCATIONS) exitWith {
         diag_log format ["handleLocationDestruction: Invalid location index: %1", _locationIndex];
         false
     };
     
-    private _locationData = MISSION_LOCATIONS select _locationIndex;
-    _locationData params ["_id", "_name", "_type", "_pos", "_intel", "_tasks", "_briefings", "_captured"];
+    // Safely extract location data with error handling
+    private _locationData = +MISSION_LOCATIONS select _locationIndex; // Make a copy to avoid reference issues
     
-    // Log the destruction
+    if (count _locationData < 7) exitWith {
+        diag_log format ["ERROR: Location data at index %1 is incomplete: %2", _locationIndex, _locationData];
+        false
+    };
+    
+    // Safely extract parameters with defaults
+    private _id = _locationData param [0, "unknown_id"];
+    private _name = _locationData param [1, "Unknown Location"];
+    private _type = _locationData param [2, "unknown"];
+    private _pos = _locationData param [3, [0,0,0]];
+    private _intel = _locationData param [4, 0];
+    private _tasks = _locationData param [5, []];
+    private _briefings = _locationData param [6, []];
+    private _captured = _locationData param [7, false];
+    
+    // Log the destruction with safer formatting
     diag_log format ["DESTRUCTION SYSTEM: Location being destroyed: %1 (%2)", _name, _type];
     
     // 1. Find any active destroy tasks for this location and complete them
     private _destroyTasksCompleted = false;
+    private _activeTasksForLocation = [];
+    
+    // First, collect all tasks for this location to avoid modifying while iterating
     {
         private _taskObj = _x;
         private _taskId = "";
@@ -1896,47 +2048,83 @@ fnc_handleLocationDestruction = {
         if (count _taskObj > 1) then { _taskLocIndex = _taskObj select 1; };
         if (count _taskObj > 2) then { _taskType = _taskObj select 2; };
         
-        if (_taskLocIndex == _locationIndex && _taskType == "destroy") then {
+        if (_taskLocIndex == _locationIndex) then {
+            _activeTasksForLocation pushBack [_taskId, _taskType];
+        };
+    } forEach MISSION_activeTasks;
+    
+    // Now process these tasks outside the loop
+    {
+        _x params ["_taskId", "_taskType"];
+        
+        if (_taskType == "destroy") then {
             diag_log format ["DESTRUCTION SYSTEM: Completing destroy task %1 for location %2", _taskId, _locationIndex];
             
             // Mark task as completed
             [_taskId, true] call fnc_completeTask;
             _destroyTasksCompleted = true;
-            diag_log "DESTRUCTION SYSTEM: Task successfully completed!";
+        } else {
+            // For any other task type, fail it
+            diag_log format ["DESTRUCTION SYSTEM: Failing non-destroy task %1 for location %2", _taskId, _locationIndex];
+            [_taskId, false] call fnc_completeTask;
         };
-    } forEach MISSION_activeTasks;
+    } forEach _activeTasksForLocation;
     
-    if (!_destroyTasksCompleted) then {
-        diag_log "DESTRUCTION SYSTEM: No active destroy tasks found for this location";
-    };
-    
-    // 2. Remove any resource benefits
+    // 3. Remove any resource benefits
     if (!isNil "fnc_removeLocationResourceBonus") then {
         [_locationIndex] call fnc_removeLocationResourceBonus;
         diag_log format ["DESTRUCTION SYSTEM: Resource bonuses removed for location: %1", _name];
     };
     
-    // 3. Update marker to show destroyed state
+    // 4. Update marker to show destroyed state
     private _markerName = format ["task_location_%1", _locationIndex];
     if (markerType _markerName != "") then {
         _markerName setMarkerColor "ColorBlack";
         _markerName setMarkerAlpha 0.6;
-        _markerName setMarkerText format ["%1 (DESTROYED)", _name];
+        _markerName setMarkerText format ["%1 (DESTROYED)", _type];
         diag_log format ["DESTRUCTION SYSTEM: Updated marker for destroyed location: %1", _markerName];
     };
     
-    // 4. Mark location as permanently destroyed in data array
-    _locationData set [7, false]; // Set to not captured
+    // 5. Mark location as permanently destroyed in data array
+    // Create a new array with proper size and copy original values
+    private _newLocationData = [];
     
-    // Add permanent "destroyed" flag if it doesn't exist
-    if (count _locationData > 8) then {
-        _locationData set [8, true]; // Position 8: Destroyed flag
-    } else {
-        _locationData pushBack true; // Add destroyed flag
+    // Copy original data
+    for "_i" from 0 to ((count _locationData) - 1) do {
+        if (_i < count _locationData) then {
+            _newLocationData set [_i, _locationData select _i];
+        };
     };
     
-    // 5. Mark the reference object as destroyed
-    private _refObj = MISSION_locationObjects select _locationIndex;
+    // Ensure the new array is at least 7 elements long
+    while {count _newLocationData < 7} do {
+        _newLocationData pushBack "";
+    };
+    
+    // Set not captured
+    if (count _newLocationData > 7) then {
+        _newLocationData set [7, false];
+    } else {
+        _newLocationData pushBack false;
+    };
+    
+    // Ensure we have 10 elements for the destroyed flag
+    while {count _newLocationData < 10} do {
+        _newLocationData pushBack "";
+    };
+    
+    // Set destroyed flag at position 9
+    _newLocationData set [9, true];
+    
+    // Update the location in the MISSION_LOCATIONS array
+    MISSION_LOCATIONS set [_locationIndex, _newLocationData];
+    
+    // 7. Mark the reference object as destroyed
+    private _refObj = objNull;
+    if (count MISSION_locationObjects > _locationIndex) then {
+        _refObj = MISSION_locationObjects select _locationIndex;
+    };
+    
     if (!isNil "_refObj" && {!isNull _refObj}) then {
         // Set the critical variable that the task completion code looks for
         _refObj setVariable ["destroyed", true, true];
@@ -1955,9 +2143,9 @@ fnc_handleLocationDestruction = {
         };
     };
     
-    // 6. Notify player
+    // 8. Notify player
     if (hasInterface) then {
-        private _msg = format ["%1 has been completely destroyed. This location is no longer usable.", _name];
+        private _msg = format ["%1 has been completely destroyed. This location is no longer available for operations.", _name];
         hint _msg;
         systemChat _msg;
     };
@@ -2063,6 +2251,23 @@ fnc_setupReconTrigger = {
     ];
     
     _trig
+};
+
+fnc_isLocationDestroyed = {
+    params ["_locationIndex"];
+    
+    if (isNil "_locationIndex") exitWith { false };
+    if (_locationIndex < 0) exitWith { false };
+    if (_locationIndex >= count MISSION_LOCATIONS) exitWith { false };
+    
+    private _locationData = MISSION_LOCATIONS select _locationIndex;
+    
+    // Check if location is destroyed (position 9 in the array)
+    if (count _locationData > 9) then {
+        _locationData select 9
+    } else {
+        false
+    };
 };
 
 // =====================================================================
