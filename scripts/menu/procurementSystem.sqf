@@ -579,11 +579,7 @@ fnc_spawnWeaponCrate = {
     // Determine crate type based on what's available
     private _crateType = "Box_NATO_Ammo_F"; // Default
     
-    if (isClass (configFile >> "CfgVehicles" >> "JMSSA_Ammo_crate_big")) then {
-        _crateType = "JMSSA_Ammo_crate_big";
-    } else if (isClass (configFile >> "CfgVehicles" >> "LIB_BasicWeaponsBox_US")) then {
-        _crateType = "LIB_BasicWeaponsBox_US";
-    };
+    
     
     // Create the crate
     private _crate = createVehicle [_crateType, _position, [], 0, "NONE"];
@@ -599,21 +595,7 @@ fnc_spawnWeaponCrate = {
         // It's a weapon - add appropriate magazines too
         _crate addWeaponCargoGlobal [_weaponClass, 10]; // 10 weapons per crate
         
-        // Get compatible magazines
-        private _mags = getArray (configFile >> "CfgWeapons" >> _weaponClass >> "magazines");
-        if (count _mags > 0) then {
-            _crate addMagazineCargoGlobal [_mags select 0, 50]; // 50 magazines
-        };
-    } else if (isClass (configFile >> "CfgMagazines" >> _weaponClass)) then {
-        // It's a magazine
-        _crate addMagazineCargoGlobal [_weaponClass, 50];
-    } else if (isClass (configFile >> "CfgVehicles" >> _weaponClass)) then {
-        // It's a vehicle - can't add to a crate, log warning
-        systemChat format ["Warning: Cannot add vehicle %1 to a crate", _weaponClass];
-    } else {
-        // Try as a generic item
-        _crate addItemCargoGlobal [_weaponClass, 10];
-    };
+        
     
     // Make Zeus editable
     {
@@ -622,6 +604,7 @@ fnc_spawnWeaponCrate = {
     
     // Return the crate
     _crate
+};
 };
 
 // This function creates the necessary markers if they don't exist

@@ -34,8 +34,7 @@ if (isNil "MISSION_constructionOptions") then {
     
     // Add some default construction options that don't require research
     MISSION_constructionOptions = [
-        ["JMSSA_veh_bedfordMW_F", "Bedford Truck", "Vehicles", 1, [["Iron", 50], ["Wood", 20], ["Oil", 30]], 60],
-        ["JMSSA_gb_rifle_rifle", "Lee-Enfield Mk.III", "Small Arms", 10, [["Iron", 20], ["Wood", 10]], 30]
+        
     ];
 };
 
