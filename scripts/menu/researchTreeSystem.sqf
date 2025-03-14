@@ -1,5 +1,5 @@
 // researchTreeSystem.sqf - Enhanced Research System with Tech Tree
-// Extends openSmallArmsResearchUI.sqf with tech tree functionality
+// Fixes for UI selection and training research integration
 
 // Initialize research points if not already defined
 // Uses existing economy resource framework
@@ -56,14 +56,14 @@ if (isNil "MISSION_researchPoints") then {
     
     // Create new modified function that syncs changes
     fnc_modifyResearchPoints = {
-    params ["_amount"];
-    
-    // Update legacy variable
-    MISSION_researchPoints = MISSION_researchPoints + _amount;
-    
-    // Also update in economy system
-    ["research", _amount] call RTS_fnc_modifyResource;
-	};
+        params ["_amount"];
+        
+        // Update legacy variable
+        MISSION_researchPoints = MISSION_researchPoints + _amount;
+        
+        // Also update in economy system
+        ["research", _amount] call RTS_fnc_modifyResource;
+    };
     
     // Continuous monitoring to ensure sync
     while {true} do {
@@ -407,6 +407,83 @@ if (isNil "MISSION_researchTree") then {
             [],
             0,
             0
+        ],
+        
+        // ===== MILITARY DOCTRINE =====
+        [
+            "basic_training_doctrine",
+            "Basic Training Doctrine",
+            "Military Doctrine",
+            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
+            "Standardized training program for all recruits, improving combat effectiveness.",
+            100, // Research cost
+            120, // Research time
+            [], // No prerequisites
+            "technology", // Type
+            "MISSION_basicTrainingDoctrine", // Effect variable
+            [], // No resources
+            0, // No construction time
+            0 // No quantity
+        ],
+        [
+            "paratrooper_doctrine",
+            "Paratrooper Doctrine",
+            "Military Doctrine",
+            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
+            "Airborne infantry training allowing troops to be dropped behind enemy lines.",
+            150, // Research cost
+            180, // Research time
+            ["basic_training_doctrine"], // Requires basic training
+            "technology", // Type
+            "MISSION_paratrooperDoctrine", // Effect variable
+            [], // No resources
+            0, // No construction time
+            0 // No quantity
+        ],
+        [
+            "commando_training",
+            "Commando Training",
+            "Military Doctrine",
+            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
+            "Special forces training for elite troops, focusing on stealth and sabotage.",
+            200, // Research cost
+            240, // Research time
+            ["basic_training_doctrine"], // Requires basic training
+            "technology", // Type
+            "MISSION_commandoTraining", // Effect variable
+            [], // No resources
+            0, // No construction time
+            0 // No quantity
+        ],
+        [
+            "officer_academy",
+            "Officer Academy",
+            "Military Doctrine",
+            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
+            "Leadership training program to develop commanding officers.",
+            180, // Research cost
+            200, // Research time
+            ["basic_training_doctrine"], // Requires basic training
+            "technology", // Type
+            "MISSION_officerAcademy", // Effect variable
+            [], // No resources
+            0, // No construction time
+            0 // No quantity
+        ],
+        [
+            "special_operations",
+            "Special Operations",
+            "Military Doctrine",
+            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
+            "Advanced specialized training for battlefield capabilities.",
+            250, // Research cost
+            300, // Research time
+            ["commando_training", "officer_academy"], // Requires commando training and officer academy
+            "technology", // Type
+            "MISSION_specialOperations", // Effect variable
+            [], // No resources
+            0, // No construction time
+            0 // No quantity
         ]
     ];
 };
@@ -554,194 +631,183 @@ fnc_checkResearchProgress = {
     };
 };
 
-// This is a replacement for the original openSmallArmsResearchUI function
-// that maintains compatibility but adds tech tree functionality
+// Complete replacement for the Research UI implementation
+// Add this section to the end of researchTreeSystem.sqf, replacing the current UI functions
+
+// Global variables to track UI state
+RTS_currentResearchDisplay = displayNull;
+RTS_currentCategory = "";
+RTS_selectedTechId = "";
+
+// New implementation of research UI
 fnc_openResearchUI = {
-    if (dialog) then {closeDialog 0;};
-    createDialog "RscDisplayEmpty";
-    
-    private _display = findDisplay -1;
-    
-    if (isNull _display) exitWith {
-        diag_log "Failed to create Research UI";
-        hint "Failed to create research UI. Please try again.";
+    // Close existing dialog if open
+    if (!isNull RTS_currentResearchDisplay) then {
+        closeDialog 0;
     };
     
-    // Create background - use the same style as original
-    private _background = _display ctrlCreate ["RscText", -1];
+    // Create new dialog
+    createDialog "RscDisplayEmpty";
+    
+    // Store the display reference
+    RTS_currentResearchDisplay = findDisplay -1;
+    
+    // Check if display was created successfully
+    if (isNull RTS_currentResearchDisplay) exitWith {
+        hint "Failed to create research UI. Please try again.";
+        false
+    };
+    
+    // Initialize UI components
+    [] call fnc_createResearchUIComponents;
+    
+    // Start update loop
+    [] spawn fnc_updateResearchUI;
+    
+    true
+};
+
+// Create all UI components
+fnc_createResearchUIComponents = {
+    private _display = RTS_currentResearchDisplay;
+    
+    // Create background
+    private _background = _display ctrlCreate ["RscText", 10000];
     _background ctrlSetPosition [0.2 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.6 * safezoneW, 0.7 * safezoneH];
     _background ctrlSetBackgroundColor [0, 0, 0, 0.8];
     _background ctrlCommit 0;
-
+    
     // Create title
-    private _title = _display ctrlCreate ["RscText", -1];
+    private _title = _display ctrlCreate ["RscText", 10001];
     _title ctrlSetPosition [0.2 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.6 * safezoneW, 0.05 * safezoneH];
     _title ctrlSetText "Research & Development";
     _title ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _title ctrlCommit 0;
-
-    // Create Research Points display
-    private _pointsText = _display ctrlCreate ["RscText", 1001];
+    
+    // Create points display
+    private _pointsText = _display ctrlCreate ["RscText", 10002];
     _pointsText ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.21 * safezoneH + safezoneY, 0.3 * safezoneW, 0.04 * safezoneH];
     _pointsText ctrlSetText format ["Research Points: %1", MISSION_researchPoints];
     _pointsText ctrlCommit 0;
     
     // Create active research display
-    private _activeText = _display ctrlCreate ["RscText", 1002];
+    private _activeText = _display ctrlCreate ["RscText", 10003];
     _activeText ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.21 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
-    
-    if (count MISSION_activeResearch > 0) then {
-        MISSION_activeResearch params ["_techId", "_startTime", "_endTime"];
-        private _techIndex = MISSION_researchTree findIf {(_x select 0) == _techId};
-        private _techName = (MISSION_researchTree select _techIndex) select 1;
-        private _remaining = _endTime - time;
-        _activeText ctrlSetText format ["Researching: %1 (%2s)", _techName, floor _remaining];
-    } else {
-        _activeText ctrlSetText "No active research";
-    };
-    
+    _activeText ctrlSetText "No active research";
     _activeText ctrlCommit 0;
     
-    // Create category tabs
+    // Get all categories
     private _categories = [];
     {
         private _category = _x select 2;
-        if !(_category in _categories) then {
+        if (!(_category in _categories)) then {
             _categories pushBack _category;
         };
     } forEach MISSION_researchTree;
     
-    for "_i" from 0 to (count _categories - 1) do {
+    // Create category buttons
+    for "_i" from 0 to ((count _categories) - 1) do {
         private _category = _categories select _i;
-        private _tabButton = _display ctrlCreate ["RscButton", 1100 + _i];
-        _tabButton ctrlSetPosition [
+        
+        private _catBtn = _display ctrlCreate ["RscButton", 10100 + _i];
+        _catBtn ctrlSetPosition [
             (0.22 + (_i * 0.12)) * safezoneW + safezoneX,
             0.26 * safezoneH + safezoneY,
             0.11 * safezoneW,
             0.04 * safezoneH
         ];
-        _tabButton ctrlSetText _category;
-        _tabButton setVariable ["category", _category];
-        _tabButton ctrlSetEventHandler ["ButtonClick", "params ['_ctrl']; [_ctrl getVariable 'category'] call fnc_switchResearchTab"];
-        _tabButton ctrlCommit 0;
+        _catBtn ctrlSetText _category;
+        _catBtn setVariable ["category", _category];
+        _catBtn ctrlAddEventHandler ["ButtonClick", {
+            params ["_control"];
+            private _category = _control getVariable "category";
+            RTS_currentCategory = _category;
+            [] call fnc_updateTechList;
+        }];
+        _catBtn ctrlCommit 0;
     };
     
-    // Create research list area
-    private _researchArea = _display ctrlCreate ["RscListBox", 1200];
-    _researchArea ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.31 * safezoneH + safezoneY, 0.36 * safezoneW, 0.45 * safezoneH];
-    _researchArea ctrlCommit 0;
+    // Create tech list area
+    private _techList = _display ctrlCreate ["RscListBox", 10200];
+    _techList ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.31 * safezoneH + safezoneY, 0.36 * safezoneW, 0.45 * safezoneH];
+    _techList ctrlAddEventHandler ["LBSelChanged", {
+        params ["_control", "_selectedIndex"];
+        
+        if (_selectedIndex >= 0) then {
+            private _techId = _control lbData _selectedIndex;
+            RTS_selectedTechId = _techId;
+            [] call fnc_updateDetailsArea;
+        };
+    }];
+    _techList ctrlCommit 0;
     
-    // Create details panel
-    private _detailsPanel = _display ctrlCreate ["RscStructuredText", 1300];
-    _detailsPanel ctrlSetPosition [0.59 * safezoneW + safezoneX, 0.31 * safezoneH + safezoneY, 0.19 * safezoneW, 0.35 * safezoneH];
-    _detailsPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 0.7];
-    _detailsPanel ctrlCommit 0;
+    // Create details area
+    private _detailsArea = _display ctrlCreate ["RscStructuredText", 10300];
+    _detailsArea ctrlSetPosition [0.59 * safezoneW + safezoneX, 0.31 * safezoneH + safezoneY, 0.19 * safezoneW, 0.35 * safezoneH];
+    _detailsArea ctrlSetBackgroundColor [0.1, 0.1, 0.1, 0.7];
+    _detailsArea ctrlCommit 0;
     
     // Create research button
-    private _researchButton = _display ctrlCreate ["RscButton", 1400];
-    _researchButton ctrlSetPosition [0.59 * safezoneW + safezoneX, 0.67 * safezoneH + safezoneY, 0.19 * safezoneW, 0.05 * safezoneH];
-    _researchButton ctrlSetText "Start Research";
-    _researchButton ctrlEnable false;
-    _researchButton ctrlSetBackgroundColor [0.2, 0.4, 0.2, 1];
-    _researchButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_startSelectedResearch"];
-    _researchButton ctrlCommit 0;
+    private _researchBtn = _display ctrlCreate ["RscButton", 10400];
+    _researchBtn ctrlSetPosition [0.59 * safezoneW + safezoneX, 0.67 * safezoneH + safezoneY, 0.19 * safezoneW, 0.05 * safezoneH];
+    _researchBtn ctrlSetText "Start Research";
+    _researchBtn ctrlAddEventHandler ["ButtonClick", {
+        [] call fnc_startSelectedResearch;
+    }];
+    _researchBtn ctrlCommit 0;
     
     // Create close button
-    private _closeButton = _display ctrlCreate ["RscButton", 1500];
-    _closeButton ctrlSetPosition [0.7 * safezoneW + safezoneX, 0.77 * safezoneH + safezoneY, 0.08 * safezoneW, 0.04 * safezoneH];
-    _closeButton ctrlSetText "Close";
-    _closeButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
-    _closeButton ctrlCommit 0;
-    
-    // Set event handlers
-    _researchArea ctrlAddEventHandler ["LBSelChanged", {
-        params ["_control", "_selectedIndex"];
-        [_control, _selectedIndex] call fnc_updateDetailsPanel;
+    private _closeBtn = _display ctrlCreate ["RscButton", 10500];
+    _closeBtn ctrlSetPosition [0.7 * safezoneW + safezoneX, 0.77 * safezoneH + safezoneY, 0.08 * safezoneW, 0.04 * safezoneH];
+    _closeBtn ctrlSetText "Close";
+    _closeBtn ctrlAddEventHandler ["ButtonClick", {
+        closeDialog 0;
     }];
+    _closeBtn ctrlCommit 0;
     
-    // Add handler for dialog closure
-    _display displayAddEventHandler ["Unload", {
-        // Any cleanup needed here
-    }];
-    
-    // Switch to first tab
+    // Set first category as default
     if (count _categories > 0) then {
-        [_categories select 0] call fnc_switchResearchTab;
-    };
-    
-    // Start UI update loop
-    [] spawn {
-        while {!isNull findDisplay -1} do {
-            private _display = findDisplay -1;
-            
-            // Update active research text
-            private _activeText = _display displayCtrl 1002;
-            if (count MISSION_activeResearch > 0) then {
-                MISSION_activeResearch params ["_techId", "_startTime", "_endTime"];
-                private _techIndex = MISSION_researchTree findIf {(_x select 0) == _techId};
-                private _techName = (MISSION_researchTree select _techIndex) select 1;
-                private _remaining = _endTime - time;
-                _activeText ctrlSetText format ["Researching: %1 (%2s)", _techName, floor _remaining];
-            } else {
-                _activeText ctrlSetText "No active research";
-            };
-            
-            // Check research progress
-            call fnc_checkResearchProgress;
-            
-            sleep 0.5;
-        };
+        RTS_currentCategory = _categories select 0;
+        [] call fnc_updateTechList;
     };
 };
 
-// Function to switch research tab
-fnc_switchResearchTab = {
-    params ["_category"];
+// Update the tech list based on current category
+fnc_updateTechList = {
+    private _display = RTS_currentResearchDisplay;
+    if (isNull _display) exitWith {};
     
-    private _display = findDisplay -1;
-    
-    // Update tab button visuals
-    for "_i" from 0 to 10 do {
-        private _tabButton = _display displayCtrl (1100 + _i);
-        if (!isNull _tabButton) then {
-            if ((_tabButton getVariable ["category", ""]) == _category) then {
-                _tabButton ctrlSetBackgroundColor [0.3, 0.3, 0.8, 1];
-            } else {
-                _tabButton ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
-            };
+    // Highlight selected category button
+    private _allButtons = [];
+    for "_i" from 0 to 20 do {
+        private _btn = _display displayCtrl (10100 + _i);
+        if (!isNull _btn) then {
+            _allButtons pushBack _btn;
         };
     };
     
-    // Store current category
-    _display setVariable ["currentCategory", _category];
-    
-    // Update research list
-    [_category] call fnc_updateResearchList;
-};
-
-// Function to update research list for a category
-fnc_updateResearchList = {
-    params ["_category"];
-    
-    private _display = findDisplay -1;
-    private _researchArea = _display displayCtrl 1200;
-    
-    // Clear current list
-    lbClear _researchArea;
-    
-    // Filter technologies by category
-    private _categoryTechs = MISSION_researchTree select {(_x select 2) == _category};
-    
-    // Add each technology to the list
     {
-        // Safely extract tech ID and name with error checking
+        private _category = _x getVariable ["category", ""];
+        if (_category == RTS_currentCategory) then {
+            _x ctrlSetBackgroundColor [0.3, 0.3, 0.8, 1];
+        } else {
+            _x ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+        };
+    } forEach _allButtons;
+    
+    // Clear and update tech list
+    private _techList = _display displayCtrl 10200;
+    lbClear _techList;
+    
+    // Filter technologies by current category
+    private _categoryTechs = MISSION_researchTree select {(_x select 2) == RTS_currentCategory};
+    
+    // Add each tech to list
+    {
         private _techId = _x select 0;
         private _name = _x select 1;
         
-        if (isNil "_techId") then { _techId = "unknown"; };
-        if (isNil "_name") then { _name = "Unknown Technology"; };
-        
-        // Determine status indicator
+        // Determine status icon
         private _status = "";
         if (_techId in MISSION_completedResearch) then {
             _status = "✓"; // Completed
@@ -758,8 +824,8 @@ fnc_updateResearchList = {
         };
         
         // Add to list with status
-        private _index = _researchArea lbAdd format ["%1 %2", _status, _name];
-        _researchArea lbSetData [_index, _techId];
+        private _index = _techList lbAdd format ["%1 %2", _status, _name];
+        _techList lbSetData [_index, _techId];
         
         // Set text color based on status
         private _color = [1, 1, 1, 1]; // Default white
@@ -770,58 +836,59 @@ fnc_updateResearchList = {
             case "✗": { _color = [0.5, 0.5, 0.5, 1]; }; // Gray for unavailable
         };
         
-        _researchArea lbSetColor [_index, _color];
+        _techList lbSetColor [_index, _color];
     } forEach _categoryTechs;
     
     // Select first item by default
-    if (lbSize _researchArea > 0) then {
-        _researchArea lbSetCurSel 0;
+    if (lbSize _techList > 0) then {
+        _techList lbSetCurSel 0;
+    } else {
+        // Clear details if no tech to select
+        RTS_selectedTechId = "";
+        [] call fnc_updateDetailsArea;
     };
 };
 
-// Function to update details panel
-fnc_updateDetailsPanel = {
-    params ["_control", "_selectedIndex"];
+// Update the details area for selected tech
+fnc_updateDetailsArea = {
+    private _display = RTS_currentResearchDisplay;
+    if (isNull _display) exitWith {};
     
-    if (_selectedIndex < 0) exitWith {};
+    private _detailsArea = _display displayCtrl 10300;
+    private _researchBtn = _display displayCtrl 10400;
     
-    private _techId = _control lbData _selectedIndex;
-    private _display = ctrlParent _control;
-    private _detailsPanel = _display displayCtrl 1300;
-    private _researchButton = _display displayCtrl 1400;
+    // If no tech selected, clear details
+    if (RTS_selectedTechId == "") exitWith {
+        _detailsArea ctrlSetStructuredText parseText "No technology selected.";
+        _researchBtn ctrlEnable false;
+    };
     
-    // Get technology data
-    private _techIndex = MISSION_researchTree findIf {(_x select 0) == _techId};
-    if (_techIndex == -1) exitWith {};
+    // Get tech data
+    private _techIndex = MISSION_researchTree findIf {(_x select 0) == RTS_selectedTechId};
+    if (_techIndex == -1) exitWith {
+        _detailsArea ctrlSetStructuredText parseText "Technology details not available.";
+        _researchBtn ctrlEnable false;
+    };
     
     private _techData = MISSION_researchTree select _techIndex;
     
-    // Safely extract parameters with default values
-    private _name = _techData param [1, "Unknown"];
-    private _category = _techData param [2, "Misc"];
-    private _iconPath = _techData param [3, ""];
-    private _description = _techData param [4, "No description available."];
-    private _cost = _techData param [5, 100];
-    private _time = _techData param [6, 60];
-    private _prerequisites = _techData param [7, []];
-    private _type = _techData param [8, "technology"];
-    private _effect = _techData param [9, ""];
-    private _resources = _techData param [10, []];
-    private _constructionTime = _techData param [11, 30];
-    private _quantity = _techData param [12, 0];
+    // Extract data
+    private _name = _techData select 1;
+    private _description = _techData select 4;
+    private _cost = _techData select 5;
+    private _time = _techData select 6;
+    private _prerequisites = _techData select 7;
+    private _type = _techData select 8;
     
-    // Format prerequisites text
+    // Format prerequisites
     private _prereqsText = "";
     if (count _prerequisites > 0) then {
         private _prereqNames = [];
         {
-            private _prereqId = _x;
-            private _prereqIndex = MISSION_researchTree findIf {(_x select 0) == _prereqId};
+            private _prereqIndex = MISSION_researchTree findIf {(_x select 0) == _x};
             if (_prereqIndex != -1) then {
                 private _prereqName = (MISSION_researchTree select _prereqIndex) select 1;
-                if (!isNil "_prereqName") then {
-                    _prereqNames pushBack _prereqName;
-                };
+                _prereqNames pushBack _prereqName;
             };
         } forEach _prerequisites;
         
@@ -834,15 +901,15 @@ fnc_updateDetailsPanel = {
         _prereqsText = "No prerequisites";
     };
     
-    // Format effect text
+    // Format effect based on type
     private _effectText = if (_type == "constructable") then {
         format ["Unlocks construction of %1", _name];
     } else {
         "Unlocks new capabilities";
     };
     
-    // Format details string
-    private _detailsString = format [
+    // Create details HTML
+    private _detailsText = format [
         "<t size='1.2' align='center'>%1</t><br/><br/>" +
         "<t size='1.0'>%2</t><br/><br/>" +
         "<t color='#ADD8E6'>Research Cost: %3 points</t><br/>" +
@@ -857,41 +924,80 @@ fnc_updateDetailsPanel = {
         _effectText
     ];
     
-    // Add construction details if applicable
-    if (_type == "constructable") then {
-        private _materialsText = "";
-        {
-            _x params ["_resourceName", "_amount"];
-            _materialsText = _materialsText + format ["<br/>- %1: %2", _resourceName, _amount];
-        } forEach _resources;
-        
-        _detailsString = _detailsString + format [
-            "<br/><br/><t color='#FFD700'>Construction:</t>" +
-            "<t color='#CCCCCC'>%1</t><br/>" +
-            "<t color='#CCCCCC'>Time: %2 min</t>",
-            _materialsText,
-            (_constructionTime / 60) toFixed 1
-        ];
-    };
+    // Set details text
+    _detailsArea ctrlSetStructuredText parseText _detailsText;
     
-    _detailsPanel ctrlSetStructuredText parseText _detailsString;
-    
-    // Enable/disable research button based on availability
-    _researchButton ctrlEnable ([_techId] call fnc_isTechAvailable && MISSION_researchPoints >= _cost);
+    // Enable/disable research button
+    private _available = [RTS_selectedTechId] call fnc_isTechAvailable;
+    private _enoughPoints = MISSION_researchPoints >= _cost;
+    _researchBtn ctrlEnable (_available && _enoughPoints);
 };
 
-// Function to start research on selected technology
+// Start research on selected technology
 fnc_startSelectedResearch = {
-    private _display = findDisplay -1;
-    private _researchArea = _display displayCtrl 1200;
-    private _selectedIndex = lbCurSel _researchArea;
-    
-    if (_selectedIndex < 0) exitWith {
+    if (RTS_selectedTechId == "") exitWith {
         hint "No technology selected.";
     };
     
-    private _techId = _researchArea lbData _selectedIndex;
-    [_techId] call fnc_startResearchOnTech;
+    // Start the research
+    [RTS_selectedTechId] call fnc_startResearchOnTech;
+    
+    // Update the UI
+    [] call fnc_updateTechList;
+};
+
+// Main update loop for research UI
+fnc_updateResearchUI = {
+    while {!isNull RTS_currentResearchDisplay} do {
+        private _display = RTS_currentResearchDisplay;
+        
+        // Update points display
+        private _pointsText = _display displayCtrl 10002;
+        _pointsText ctrlSetText format ["Research Points: %1", MISSION_researchPoints];
+        
+        // Update active research display
+        private _activeText = _display displayCtrl 10003;
+        if (count MISSION_activeResearch > 0) then {
+            MISSION_activeResearch params ["_techId", "_startTime", "_endTime"];
+            private _techIndex = MISSION_researchTree findIf {(_x select 0) == _techId};
+            if (_techIndex != -1) then {
+                private _techName = (MISSION_researchTree select _techIndex) select 1;
+                private _remaining = _endTime - time;
+                _activeText ctrlSetText format ["Researching: %1 (%2s)", _techName, floor _remaining];
+            };
+        } else {
+            _activeText ctrlSetText "No active research";
+        };
+        
+        // Check research progress
+        call fnc_checkResearchProgress;
+        
+        sleep 0.5;
+    };
+};
+
+// Override this function to be more robust
+fnc_checkResearchProgress = {
+    if (count MISSION_activeResearch < 3) exitWith {};
+    
+    MISSION_activeResearch params ["_techId", "_startTime", "_endTime"];
+    
+    if (time >= _endTime) then {
+        // Check if technology exists
+        private _techIndex = MISSION_researchTree findIf {(_x select 0) == _techId};
+        if (_techIndex != -1) then {
+            // Safely complete research
+            [_techId] call fnc_completeResearch;
+            
+            // Update UI if research screen is open
+            if (!isNull RTS_currentResearchDisplay) then {
+                [] call fnc_updateTechList;
+            };
+        } else {
+            // Invalid tech ID, just clear active research
+            MISSION_activeResearch = [];
+        };
+    };
 };
 
 // Start background process to update research points

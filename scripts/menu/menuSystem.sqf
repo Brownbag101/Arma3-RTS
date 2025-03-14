@@ -6,12 +6,12 @@ RTS_menuControls = [];
 
 // Menu definitions with icons and tooltips
 RTS_menuButtons = [
-    ["command", "\a3\ui_f\data\gui\cfg\hints\commanding_ca.paa", "Command Center", "View strategic intelligence and enemy information"],
-    ["management", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\map_ca.paa", "Management", "Access unit and squad commands"],
-    ["research", "\a3\ui_f\data\gui\rsc\rscdisplaymain\gradient_ca.paa", "Research", "Research new technologies and equipment"],
-    ["construction", "\a3\ui_f\data\gui\rsc\rscdisplayarcademap\icon_toolbox_buildings_ca.paa", "Construction", "Construct buildings and defenses"],
+    ["command", "a3\ui_f\data\igui\cfg\simpletasks\types\scout_ca.paa", "Command Center", "View strategic intelligence and enemy information"],
+    ["management", "a3\ui_f\data\igui\cfg\simpletasks\types\map_ca.paa", "Management", "Access unit and squad commands"],
+    ["research", "a3\ui_f\data\igui\cfg\simpletasks\types\use_ca.paa", "Research", "Research new technologies and equipment"],
+    ["construction", "a3\ui_f\data\igui\cfg\simpletasks\types\repair_ca.paa", "Construction", "Construct buildings and defenses"],
     ["training", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\face_ca.paa", "Training", "Train and upgrade units"],
-    ["procurement", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\cargoput_ca.paa", "Procurement", "Deploy constructed items to the field"]
+    ["procurement", "a3\ui_f\data\igui\cfg\simpletasks\types\container_ca.paa", "Procurement", "Deploy constructed items to the field"]
 ];
 
 // Function to create the menu buttons

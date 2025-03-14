@@ -116,10 +116,34 @@ if (isNil "TRAINING_MODULES_LOADED") then {
     // Execute training modules
     [] execVM "scripts\training\basicTraining.sqf";
     [] execVM "scripts\training\paratrooperTraining.sqf";
-    // Add more training modules as they're developed:
-    // [] execVM "scripts\training\commandoTraining.sqf";
-    // [] execVM "scripts\training\officerTraining.sqf";
-    // [] execVM "scripts\training\specialTraining.sqf";
+    
+    // Create placeholder functions for other training types
+    if (isNil "fnc_startCommandoTraining") then {
+        fnc_startCommandoTraining = {
+            params ["_unit"];
+            hint format ["Commando training for %1 not yet implemented.", name _unit];
+            // Use generic training as fallback
+            [_unit, "commando"] call fnc_genericStartTraining;
+        };
+    };
+    
+    if (isNil "fnc_startOfficerTraining") then {
+        fnc_startOfficerTraining = {
+            params ["_unit"];
+            hint format ["Officer training for %1 not yet implemented.", name _unit];
+            // Use generic training as fallback
+            [_unit, "officer"] call fnc_genericStartTraining;
+        };
+    };
+    
+    if (isNil "fnc_startSpecialTraining") then {
+        fnc_startSpecialTraining = {
+            params ["_unit"];
+            hint format ["Special abilities training for %1 not yet implemented.", name _unit];
+            // Use generic training as fallback
+            [_unit, "special"] call fnc_genericStartTraining;
+        };
+    };
     
     // Wait for basic modules to load
     waitUntil {!isNil "fnc_startBasicTraining" && !isNil "fnc_startParatrooperTraining"};
@@ -132,121 +156,24 @@ if (isNil "TRAINING_MODULES_LOADED") then {
 [] call fnc_initUnitDataMonitoring;
 
 // Integration with existing research system (if available)
-if (!isNil "MISSION_completedResearch") then {
+// We now check for research system instead of adding duplicate entries
+if (!isNil "MISSION_researchTree") then {
     diag_log "Integrating Unit Management with Research System...";
-    
-    // Add research definitions if not already present
-    if (isNil "MISSION_researchTree") then {
-        MISSION_researchTree = [];
-    };
-    
-    // Check if training research is already defined
-    private _basicTrainingResearchDefined = false;
-    private _paratrooperResearchDefined = false;
-    private _commandoResearchDefined = false;
-    private _officerResearchDefined = false;
-    private _specialResearchDefined = false;
-    
+
+    // Check if the research system has our required training categories
+    private _hasTrainingResearch = false;
     {
-        private _researchId = _x select 0;
-        switch (_researchId) do {
-            case "basic_training_doctrine": { _basicTrainingResearchDefined = true; };
-            case "paratrooper_doctrine": { _paratrooperResearchDefined = true; };
-            case "commando_training": { _commandoResearchDefined = true; };
-            case "officer_academy": { _officerResearchDefined = true; };
-            case "special_operations": { _specialResearchDefined = true; };
+        if (_x select 0 == "basic_training_doctrine") exitWith {
+            _hasTrainingResearch = true;
         };
     } forEach MISSION_researchTree;
     
-    // Add training research if not already defined
-    if (!_basicTrainingResearchDefined) then {
-        MISSION_researchTree pushBack [
-            "basic_training_doctrine",
-            "Basic Training Doctrine",
-            "Military Doctrine",
-            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
-            "Standardized training program for all recruits, improving combat effectiveness.",
-            100, // Research cost
-            120, // Research time
-            [], // No prerequisites
-            "technology", // Type
-            "MISSION_basicTrainingDoctrine", // Effect variable
-            [], // No resources
-            0, // No construction time
-            0 // No quantity
-        ];
-    };
-    
-    if (!_paratrooperResearchDefined) then {
-        MISSION_researchTree pushBack [
-            "paratrooper_doctrine",
-            "Paratrooper Doctrine",
-            "Military Doctrine",
-            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
-            "Airborne infantry training allowing troops to be dropped behind enemy lines.",
-            150, // Research cost
-            180, // Research time
-            ["basic_training_doctrine"], // Requires basic training
-            "technology", // Type
-            "MISSION_paratrooperDoctrine", // Effect variable
-            [], // No resources
-            0, // No construction time
-            0 // No quantity
-        ];
-    };
-    
-    if (!_commandoResearchDefined) then {
-        MISSION_researchTree pushBack [
-            "commando_training",
-            "Commando Training",
-            "Military Doctrine",
-            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
-            "Special forces training for elite troops, focusing on stealth and sabotage.",
-            200, // Research cost
-            240, // Research time
-            ["basic_training_doctrine"], // Requires basic training
-            "technology", // Type
-            "MISSION_commandoTraining", // Effect variable
-            [], // No resources
-            0, // No construction time
-            0 // No quantity
-        ];
-    };
-    
-    if (!_officerResearchDefined) then {
-        MISSION_researchTree pushBack [
-            "officer_academy",
-            "Officer Academy",
-            "Military Doctrine",
-            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
-            "Leadership training program to develop commanding officers.",
-            180, // Research cost
-            200, // Research time
-            ["basic_training_doctrine"], // Requires basic training
-            "technology", // Type
-            "MISSION_officerAcademy", // Effect variable
-            [], // No resources
-            0, // No construction time
-            0 // No quantity
-        ];
-    };
-    
-    if (!_specialResearchDefined) then {
-        MISSION_researchTree pushBack [
-            "special_operations",
-            "Special Operations",
-            "Military Doctrine",
-            "\a3\ui_f\data\gui\rsc\rscdisplaymain\hover_ca.paa",
-            "Advanced specialized training for battlefield capabilities.",
-            250, // Research cost
-            300, // Research time
-            ["commando_training", "officer_academy"], // Requires commando training and officer academy
-            "technology", // Type
-            "MISSION_specialOperations", // Effect variable
-            [], // No resources
-            0, // No construction time
-            0 // No quantity
-        ];
+    if (_hasTrainingResearch) then {
+        systemChat "✓ Research system already includes training doctrines";
+    } else {
+        systemChat "Research system found but missing training doctrines";
+        // Let user know they should check the research system file
+        hint "Note: The training doctrines are missing from your research system. Please check scripts/menu/researchTreeSystem.sqf to ensure training research options are included.";
     };
     
     diag_log "Unit Management integrated with Research System.";

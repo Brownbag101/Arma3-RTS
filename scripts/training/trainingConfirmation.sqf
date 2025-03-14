@@ -94,9 +94,9 @@ fnc_openTrainingConfirmationDialog = {
     
     // Format training name for display (capitalize first letter)
     private _trainingName = _trainingType;
-    _trainingName = toUpper (_trainingName select [0, 1]) + (_trainingName select [1]);
+    private _capitalizedType = toUpper (_trainingName select [0, 1]) + (_trainingName select [1]);
     
-    _titleBar ctrlSetText format ["%1 Training Confirmation", _trainingName];
+    _titleBar ctrlSetText format ["%1 Training Confirmation", _capitalizedType];
     _titleBar ctrlCommit 0;
     
     // Create unit info
@@ -205,9 +205,27 @@ fnc_openTrainingConfirmationDialog = {
         // Close dialog
         call fnc_closeTrainingConfirmationDialog;
         
-        // Try to call specific training function
-        private _fnc = missionNamespace getVariable [format ["fnc_start%1Training", _trainingType select [0, 1] + toUpper (_trainingType select [1])], {}];
-        [_unit] call _fnc;
+        // Try to call specific training function using safer string manipulation
+        // Fixed the problematic string manipulation for function name creation
+        private _firstLetter = toUpper (_trainingType select [0, 1]);
+        private _restOfString = _trainingType select [1];
+        private _functionName = format ["fnc_start%1%2Training", _firstLetter, _restOfString];
+        
+        // Debug info
+        systemChat format ["Attempting to call function: %1", _functionName];
+        
+        // Try to get the function reference
+        private _fnc = missionNamespace getVariable [_functionName, {}];
+        
+        // If function exists, call it; otherwise use default training function
+        if !(_fnc isEqualTo {}) then {
+            [_unit] call _fnc;
+            systemChat format ["Starting %1 training for %2", _trainingType, name _unit];
+        } else {
+            // Fallback to use a generic training function or hint
+            systemChat format ["Training function %1 not found, using generic training", _functionName];
+            [_unit, _trainingType] call fnc_genericStartTraining;
+        };
     }];
     _confirmButton ctrlCommit 0;
     
@@ -226,6 +244,39 @@ fnc_openTrainingConfirmationDialog = {
     }];
     _cancelButton ctrlCommit 0;
     
+    true
+};
+
+// Generic training function as a fallback
+fnc_genericStartTraining = {
+    params ["_unit", "_trainingType"];
+    
+    hint format ["Starting %1 training for %2. This is a placeholder until specific training is implemented.", _trainingType, name _unit];
+    
+    // Get cost for this training type
+    private _cost = 0;
+    {
+        if (_x select 0 == _trainingType) exitWith {
+            _cost = _x select 1;
+        };
+    } forEach UNIT_TRAINING_COSTS;
+    
+    // Deduct cost
+    ["training", -_cost] call fnc_modifyResource;
+    
+    // Update unit data to add training
+    private _unitData = [_unit] call fnc_getUnitData;
+    private _training = _unitData select 2;
+    _training pushBack _trainingType;
+    _unitData set [2, _training];
+    [_unit, _unitData] call fnc_updateUnitData;
+    
+    // Basic skill improvements
+    _unit setSkill ["aimingAccuracy", (_unit skill "aimingAccuracy") + 0.1];
+    _unit setSkill ["spotDistance", (_unit skill "spotDistance") + 0.1];
+    _unit setSkill ["courage", (_unit skill "courage") + 0.1];
+    
+    systemChat format ["%1 completed %2 training!", name _unit, _trainingType];
     true
 };
 
