@@ -127,7 +127,7 @@ if (isNil "MISSION_researchTree") then {
             180,
             ["rifle_basic"], // Requires basic rifle research
             "constructable",
-            "JMSSA_LeeEnfield_Carbine",
+            "LEN_SMLE_No4Mk1T",
             [["Iron", 60], ["Wood", 20]],
             70,
             10

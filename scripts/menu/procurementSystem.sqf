@@ -81,16 +81,33 @@ fnc_openProcurementUI = {
     // Create left list box (available items)
     private _leftListBox = _display ctrlCreate ["RscListBox", 1200];
     _leftListBox ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.31 * safezoneH + safezoneY, 0.25 * safezoneW, 0.4 * safezoneH];
+    // ADD EVENT HANDLER FOR SELECTION CHANGE
+    _leftListBox ctrlAddEventHandler ["LBSelChanged", {
+        params ["_control", "_selectedIndex"];
+        [_control, _selectedIndex] call fnc_updateProcurementDetailsPanel;
+    }];
     _leftListBox ctrlCommit 0;
     
     // Create right list box (selected items)
     private _rightListBox = _display ctrlCreate ["RscListBox", 1300];
     _rightListBox ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.31 * safezoneH + safezoneY, 0.25 * safezoneW, 0.4 * safezoneH];
+    // ADD EVENT HANDLER FOR SELECTION CHANGE
+    _rightListBox ctrlAddEventHandler ["LBSelChanged", {
+        params ["_control", "_selectedIndex"];
+        [_control, _selectedIndex] call fnc_updateProcurementDetailsPanel;
+    }];
     _rightListBox ctrlCommit 0;
+    
+    // Create details panel - NEW ADDITION
+    private _detailsPanel = _display ctrlCreate ["RscStructuredText", 1800];
+    _detailsPanel ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.72 * safezoneH + safezoneY, 0.3 * safezoneW, 0.1 * safezoneH];
+    _detailsPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 0.7];
+    _detailsPanel ctrlSetStructuredText parseText "Select an item to view details";
+    _detailsPanel ctrlCommit 0;
     
     // Create ADD button
     private _addButton = _display ctrlCreate ["RscButton", 1400];
-    _addButton ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.72 * safezoneH + safezoneY, 0.25 * safezoneW, 0.05 * safezoneH];
+    _addButton ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.83 * safezoneH + safezoneY, 0.25 * safezoneW, 0.05 * safezoneH];
     _addButton ctrlSetText "ADD TO SHIPMENT";
     _addButton ctrlSetBackgroundColor [0.2, 0.4, 0.2, 1];
     _addButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_addToProcurement"];
@@ -106,7 +123,7 @@ fnc_openProcurementUI = {
     
     // Create CANCEL button
     private _cancelButton = _display ctrlCreate ["RscButton", 1600];
-    _cancelButton ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.78 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
+    _cancelButton ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.78 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
     _cancelButton ctrlSetText "CANCEL";
     _cancelButton ctrlSetBackgroundColor [0.3, 0.3, 0.3, 1];
     _cancelButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
@@ -114,7 +131,7 @@ fnc_openProcurementUI = {
     
     // Create CONFIRM button
     private _confirmButton = _display ctrlCreate ["RscButton", 1700];
-    _confirmButton ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.78 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
+    _confirmButton ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.83 * safezoneH + safezoneY, 0.25 * safezoneW, 0.04 * safezoneH];
     _confirmButton ctrlSetText "CONFIRM SHIPMENT";
     _confirmButton ctrlSetBackgroundColor [0.3, 0.3, 0.8, 1];
     _confirmButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_confirmProcurement"];
@@ -135,6 +152,121 @@ fnc_openProcurementUI = {
         while {MISSION_procurementUIOpen && !isNull findDisplay -1} do {
             call fnc_updateProcurementUI;
             sleep 0.5;
+        };
+    };
+};
+
+// Function to update details panel with item information
+fnc_updateProcurementDetailsPanel = {
+    params ["_control", "_selectedIndex"];
+    
+    // Skip if invalid selection
+    if (_selectedIndex < 0) exitWith {};
+    
+    private _display = ctrlParent _control;
+    private _detailsPanel = _display displayCtrl 1800; // Using 1800 for details panel
+    
+    if (isNull _detailsPanel) exitWith {
+        diag_log "Error: Details panel control not found";
+    };
+    
+    // Get selected item data
+    private _className = _control lbData _selectedIndex;
+    
+    // Find item in available equipment
+    private _itemIndex = -1;
+    private _displayName = "Unknown Item";
+    private _category = "Unknown";
+    private _quantity = 0;
+    
+    // Check which list box was used (left or right)
+    private _isLeftList = (ctrlIDC _control == 1200);
+    
+    if (_isLeftList) then {
+        // Looking in available equipment
+        _itemIndex = MISSION_availableEquipment findIf {(_x select 0) == _className};
+        
+        if (_itemIndex != -1) then {
+            private _itemData = MISSION_availableEquipment select _itemIndex;
+            _itemData params ["", "_name", "_cat", "_qty"];
+            _displayName = _name;
+            _category = _cat;
+            _quantity = _qty;
+        };
+    } else {
+        // Looking in selected items
+        private _selectedItemIndex = MISSION_selectedItems findIf {(_x select 0) == _className};
+        
+        if (_selectedItemIndex != -1) then {
+            private _selectedCount = (MISSION_selectedItems select _selectedItemIndex) select 1;
+            
+            // Find original info in available equipment
+            _itemIndex = MISSION_availableEquipment findIf {(_x select 0) == _className};
+            
+            if (_itemIndex != -1) then {
+                private _itemData = MISSION_availableEquipment select _itemIndex;
+                _itemData params ["", "_name", "_cat", "_qty"];
+                _displayName = _name;
+                _category = _cat;
+                _quantity = _selectedCount; // Use selected count instead
+            };
+        };
+    };
+    
+    // Get additional item information
+    private _description = "";
+    private _imagePath = "";
+    
+    // Try to get more info from research tree if available
+    if (!isNil "MISSION_researchTree") then {
+        {
+            if ((_x select 0) == _className || (_x select 9) == _className) then {
+                _description = _x select 4;
+                _imagePath = _x select 3;
+                break;
+            };
+        } forEach MISSION_researchTree;
+    };
+    
+    // Fallback image path if none found
+    if (_imagePath == "") then {
+        _imagePath = "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\primaryweapon_ca.paa";
+        
+        // Try to determine better icon based on category
+        if (toLower _category in ["vehicles", "vehicle"]) then {
+            _imagePath = "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\itemacc_ca.paa";
+        };
+        if (toLower _category in ["aircraft", "air"]) then {
+            _imagePath = "\a3\ui_f\data\gui\rsc\rscdisplayarcademap\icon_sidebar_air_ca.paa";
+        };
+    };
+    
+    // Default description if none found
+    if (_description == "") then {
+        _description = format ["Standard issue %1 for British forces.", _displayName];
+    };
+    
+    // Format the details panel text
+    private _detailsText = format [
+        "<img image='%1' align='left' size='2.5'/><t size='1.2' align='center'>%2</t><br/><br/>" +
+        "<t color='#ADD8E6'>Category: %3</t><br/>" +
+        "<t color='#90EE90'>Available: %4</t><br/><br/>" +
+        "<t>%5</t>",
+        _imagePath,
+        _displayName,
+        _category,
+        _quantity,
+        _description
+    ];
+    
+    // Update the details panel
+    _detailsPanel ctrlSetStructuredText parseText _detailsText;
+    
+    // Enable the ADD button if this is the left list and we have available quantity
+    if (_isLeftList) then {
+        private _addButton = _display displayCtrl 1400;
+        if (!isNull _addButton) then {
+            _addButton ctrlEnable (_quantity > 0);
         };
     };
 };
@@ -189,12 +321,21 @@ fnc_updateAvailableItemsList = {
     
     // Sort alphabetically
     lbSort _leftListBox;
+    
+    // Select first item and update details panel
+    if (lbSize _leftListBox > 0) then {
+        _leftListBox lbSetCurSel 0;
+        [_leftListBox, 0] call fnc_updateProcurementDetailsPanel;
+    };
 };
 
 // Function to update selected items list
 fnc_updateSelectedItemsList = {
     private _display = findDisplay -1;
     private _rightListBox = _display displayCtrl 1300;
+    
+    // Store the currently selected index before clearing
+    private _currentSelection = lbCurSel _rightListBox;
     
     // Clear current list
     lbClear _rightListBox;
@@ -214,6 +355,17 @@ fnc_updateSelectedItemsList = {
     
     // Sort alphabetically
     lbSort _rightListBox;
+    
+    // Restore selection if possible, otherwise select first item
+    private _itemCount = lbSize _rightListBox;
+    if (_itemCount > 0) then {
+        if (_currentSelection >= 0 && _currentSelection < _itemCount) then {
+            _rightListBox lbSetCurSel _currentSelection;
+        } else {
+            _rightListBox lbSetCurSel 0;
+            [_rightListBox, 0] call fnc_updateProcurementDetailsPanel;
+        };
+    };
 };
 
 // Function to update the entire procurement UI
@@ -270,16 +422,27 @@ fnc_addToProcurement = {
     _itemData set [3, _quantity - 1];
     
     // Add to selected items
-    private _selectedIndex = MISSION_selectedItems findIf {(_x select 0) == _className};
-    if (_selectedIndex == -1) then {
+    private _selectedItemIndex = MISSION_selectedItems findIf {(_x select 0) == _className};
+    if (_selectedItemIndex == -1) then {
         MISSION_selectedItems pushBack [_className, 1];
     } else {
-        private _currentCount = (MISSION_selectedItems select _selectedIndex) select 1;
-        (MISSION_selectedItems select _selectedIndex) set [1, _currentCount + 1];
+        private _currentCount = (MISSION_selectedItems select _selectedItemIndex) select 1;
+        (MISSION_selectedItems select _selectedItemIndex) set [1, _currentCount + 1];
     };
+    
+    // Store current selection for restoration
+    private _currentSelectionData = _className;
     
     // Update UI
     call fnc_updateProcurementUI;
+    
+    // Try to restore selection after UI update
+    for "_i" from 0 to (lbSize _leftListBox - 1) do {
+        if ((_leftListBox lbData _i) == _currentSelectionData) exitWith {
+            _leftListBox lbSetCurSel _i;
+            [_leftListBox, _i] call fnc_updateProcurementDetailsPanel;
+        };
+    };
     
     hint format ["%1 added to shipment.", _name];
 };
@@ -309,6 +472,9 @@ fnc_removeFromProcurement = {
     // Increase available quantity
     _itemData set [3, _quantity + 1];
     
+    // Store the selection index before removal
+    private _previousIndex = _selectedIndex;
+    
     // Remove from selected items
     private _selectedItemIndex = MISSION_selectedItems findIf {(_x select 0) == _className};
     if (_selectedItemIndex != -1) then {
@@ -323,6 +489,17 @@ fnc_removeFromProcurement = {
     
     // Update UI
     call fnc_updateProcurementUI;
+    
+    // Restore selection to a valid index
+    private _newSize = lbSize _rightListBox;
+    if (_newSize > 0) then {
+        // Select same index if possible, otherwise select last item
+        if (_previousIndex < _newSize) then {
+            _rightListBox lbSetCurSel _previousIndex;
+        } else {
+            _rightListBox lbSetCurSel (_newSize - 1);
+        };
+    };
     
     hint format ["%1 removed from shipment.", _name];
 };

@@ -29,6 +29,9 @@ if (hasInterface) then {
     [] execVM "scripts\actions\vehicleActions\weaponToggleInit.sqf";
 	
 	[] execVM "scripts\mission\factoryResourceSystem.sqf";
+	
+	// Load Unit Management System
+    [] execVM "scripts\menu\unitManagementInit.sqf";
 };
 
 [] execVM "scripts\towCargoGlobals.sqf";

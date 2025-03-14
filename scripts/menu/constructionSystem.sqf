@@ -348,19 +348,30 @@ fnc_switchConstructionTab = {
     // Store current category
     _display setVariable ["currentCategory", _category];
     
-    // Update options list
-    [_category] call fnc_updateOptionsList;
+    // Update options list (we want to reset selection here since it's a new category)
+    [_category, false] call fnc_updateOptionsList;
 };
 
 // Function to update options list for a category
 fnc_updateOptionsList = {
-    params ["_category"];
+    params ["_category", ["_preserveSelection", true]];
     
     private _display = findDisplay -1;
     private _optionsListBox = _display displayCtrl 1300;
     
     if (isNull _optionsListBox) exitWith {
         diag_log "Error: Options list box control not found";
+    };
+    
+    // Store current selection before clearing
+    private _currentSelection = -1;
+    private _currentData = "";
+    
+    if (_preserveSelection) then {
+        _currentSelection = lbCurSel _optionsListBox;
+        if (_currentSelection >= 0) then {
+            _currentData = _optionsListBox lbData _currentSelection;
+        };
     };
     
     // Clear current list
@@ -400,9 +411,20 @@ fnc_updateOptionsList = {
         };
     } forEach _categoryOptions;
     
-    // Select first item by default
-    if (lbSize _optionsListBox > 0) then {
-        _optionsListBox lbSetCurSel 0;
+    // Restore previous selection if possible
+    if (_preserveSelection && _currentData != "") then {
+        // Try to find the same item in the new list
+        for "_i" from 0 to (lbSize _optionsListBox - 1) do {
+            if (_optionsListBox lbData _i == _currentData) exitWith {
+                _optionsListBox lbSetCurSel _i;
+            };
+        };
+    } else {
+        // Only select first item by default if we're not preserving selection
+        // or if there was no previous selection
+        if (lbSize _optionsListBox > 0) then {
+            _optionsListBox lbSetCurSel 0;
+        };
     };
 };
 
@@ -668,17 +690,35 @@ fnc_updateConstructionUI = {
     // Update queue display
     call fnc_updateQueueDisplay;
     
-    // Update option list
-    private _currentCategory = _display getVariable ["currentCategory", ""];
-    if (_currentCategory != "") then {
-        [_currentCategory] call fnc_updateOptionsList;
-    };
-    
-    // Update details if something is selected
+    // Store current selection
     private _optionsListBox = _display displayCtrl 1300;
     private _selectedIndex = lbCurSel _optionsListBox;
+    private _selectedData = "";
     
     if (_selectedIndex >= 0) then {
+        _selectedData = _optionsListBox lbData _selectedIndex;
+    };
+    
+    // Only update option list if it's empty or when absolutely necessary
+    private _currentCategory = _display getVariable ["currentCategory", ""];
+    if (_currentCategory != "" && lbSize _optionsListBox == 0) then {
+        // We pass false to NOT preserve selection when the list is empty
+        [_currentCategory, false] call fnc_updateOptionsList;
+    };
+    
+    // If we had a selection, try to update the details panel
+    if (_selectedIndex >= 0) then {
+        // If our selection changed during the update, find the new index
+        if (_selectedData != "" && _selectedData != (_optionsListBox lbData _selectedIndex)) then {
+            for "_i" from 0 to (lbSize _optionsListBox - 1) do {
+                if (_optionsListBox lbData _i == _selectedData) exitWith {
+                    _optionsListBox lbSetCurSel _i;
+                    _selectedIndex = _i;
+                };
+            };
+        };
+        
+        // Update details panel for current selection
         [_optionsListBox, _selectedIndex] call fnc_updateDetailsPanel;
     };
 };

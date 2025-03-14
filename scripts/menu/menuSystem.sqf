@@ -6,8 +6,8 @@ RTS_menuControls = [];
 
 // Menu definitions with icons and tooltips
 RTS_menuButtons = [
-    ["command", "\a3\ui_f\data\gui\cfg\hints\commanding_ca.paa", "Command Center", "Access unit and squad commands"],
-    ["intelligence", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\map_ca.paa", "Intelligence", "View strategic intelligence and enemy information"],
+    ["command", "\a3\ui_f\data\gui\cfg\hints\commanding_ca.paa", "Command Center", "View strategic intelligence and enemy information"],
+    ["management", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\map_ca.paa", "Management", "Access unit and squad commands"],
     ["research", "\a3\ui_f\data\gui\rsc\rscdisplaymain\gradient_ca.paa", "Research", "Research new technologies and equipment"],
     ["construction", "\a3\ui_f\data\gui\rsc\rscdisplayarcademap\icon_toolbox_buildings_ca.paa", "Construction", "Construct buildings and defenses"],
     ["training", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\face_ca.paa", "Training", "Train and upgrade units"],
@@ -124,10 +124,15 @@ RTS_fnc_createMenuButtons = {
 				    };
 				};	
 			
-                case "intelligence": {
-                    // Intelligence system
-                    systemChat "Intelligence panel not implemented yet";
-                };
+                case "management": {
+					// Open the Unit Management UI
+					if (!isNil "fnc_openUnitManagementUI") then {
+						[] call fnc_openUnitManagementUI;
+					} else {
+						systemChat "Unit Management System is not loaded yet";
+						hint "Unit Management System is not loaded yet";
+					};
+				};
                 case "research": {
                     // Research system - now uses enhanced research tree UI
                     if (!isNil "fnc_openResearchUI") then {
