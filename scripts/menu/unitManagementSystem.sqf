@@ -591,14 +591,8 @@ fnc_openTrainingConfirmation = {
         };
     } forEach UNIT_TRAINING_COSTS;
     
-    // Display confirmation message
-    private _unitName = name UNIT_SELECTED;
-    private _unitRank = [UNIT_SELECTED] call fnc_getRankDisplay;
-    private _trainingName = _trainingType select [0, 1] + toUpper (_trainingType select [1]) + " Training";
-    
-    private _confirmMsg = format ["Send %1 %2 for %3?\n\nCost: %4 Training Points", _unitRank, _unitName, _trainingName, _trainingCost];
-    
-    [_confirmMsg, _trainingType, _trainingCost] call fnc_showConfirmationDialog;
+    // Call the actual confirmation dialog function
+    [UNIT_SELECTED, _trainingType, _trainingCost] call fnc_openTrainingConfirmationDialog;
 };
 
 // Function to show confirmation dialog

@@ -63,7 +63,7 @@ fnc_openTrainingConfirmationDialog = {
     TRAINING_CURRENT_UNIT = _unit;
     
     // Create dialog
-    private _display = findDisplay 312; // Zeus display
+    private _display = findDisplay -1; // Zeus display
     
     if (isNull _display) exitWith {
         hint "Cannot create dialog - Zeus interface not active.";
@@ -231,7 +231,7 @@ fnc_openTrainingConfirmationDialog = {
 
 // Function to close training confirmation dialog
 fnc_closeTrainingConfirmationDialog = {
-    private _display = findDisplay 312;
+    private _display = findDisplay -1;
     
     // Delete all dialog controls
     for "_i" from 5000 to 5007 do {
