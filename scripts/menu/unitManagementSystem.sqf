@@ -138,7 +138,7 @@ fnc_openUnitManagementUI = {
     private _title = _display ctrlCreate ["RscText", -1];
     _title ctrlSetPosition [0.2 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.6 * safezoneW, 0.05 * safezoneH];
     _title ctrlSetText "UNIT MANAGEMENT";
-    _title ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+    _title ctrlSetBackgroundColor [0.00, 0.50, 0.00, 1.00];
     _title ctrlCommit 0;
     
     // Create training points display

@@ -1,0 +1,42 @@
+
+comment "Exported from Arsenal by Brown";
+
+comment "[!] UNIT MUST BE LOCAL [!]";
+if (!local this) exitWith {};
+
+comment "Remove existing items";
+removeAllWeapons this;
+removeAllItems this;
+removeAllAssignedItems this;
+removeUniform this;
+removeVest this;
+removeBackpack this;
+removeHeadgear this;
+removeGoggles this;
+
+comment "Add weapons";
+this addWeapon "LEN_SMLE_No4Mk1T";
+this addPrimaryWeaponItem "LEN_10Rnd_303";
+this addPrimaryWeaponItem "LIB_5rnd_MUZZLE_FAKEMAG";
+
+comment "Add containers";
+this forceAddUniform "fow_u_uk_bd40_01_lieutenant";
+this addVest "fow_v_uk_officer_green";
+this addBackpack "JMSSA_brit_bergen_b";
+
+comment "Add items to containers";
+this addItemToUniform "FirstAidKit";
+for "_i" from 1 to 3 do {this addItemToUniform "LEN_10Rnd_303";};
+for "_i" from 1 to 3 do {this addItemToBackpack "CUP_TimeBomb_M";};
+this addItemToBackpack "LIB_US_TNT_4pound_mag";
+for "_i" from 1 to 2 do {this addItemToBackpack "fow_e_tnt_twopound_mag";};
+for "_i" from 1 to 2 do {this addItemToBackpack "fow_e_tnt_twohalfpound_mag";};
+this addHeadgear "fow_h_uk_mk2";
+
+comment "Add items";
+this linkItem "ItemMap";
+this linkItem "ItemCompass";
+this linkItem "ItemWatch";
+
+comment "Set identity";
+[this,"LIB_WhiteHead_07_Dirt","male04engb"] call BIS_fnc_setIdentity;
