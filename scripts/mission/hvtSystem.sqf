@@ -1,39 +1,32 @@
 // scripts/mission/hvtSystem.sqf
-// High-Value Target (HVT) System for WW2 RTS
+// High-Value Target (HVT) System for WW2 RTS - COMPLETE REWRITE
 
 // =====================================================================
-// HVT CONFIGURATION VALUES - EDIT AS NEEDED
+// HVT CONFIGURATION VALUES - GAMEPLAY VARIABLES
 // =====================================================================
 
-// Debugging info
-systemChat "HVT System initializing...";
-diag_log "=====================================";
-diag_log "HVT SYSTEM INITIALIZATION STARTED";
-diag_log "=====================================";
+// Debug mode - set to true for additional information
+HVT_DEBUG_MODE = true;
 
-// Intel level thresholds - matching the task system
+// Intel level thresholds
 HVT_INTEL_UNKNOWN = 0;    // 0-25%
 HVT_INTEL_BASIC = 25;     // 25-75%
 HVT_INTEL_COMPLETE = 75;  // 75-100%
 
 // Intel decay rate (per minute) if target is not captured
-// GAMEPLAY VARIABLE - Adjust this to change how quickly intel becomes outdated
 HVT_INTEL_DECAY_RATE = 1; // Intelligence points lost per minute
 
 // Time between intel decay checks (in seconds)
-// GAMEPLAY VARIABLE - Lower values mean more frequent checks but higher performance impact
 HVT_DECAY_CHECK_INTERVAL = 60; // Check every minute
 
-// HVT refresh rate for position updates (in seconds)
-// GAMEPLAY VARIABLE - Lower values give more accurate tracking but higher performance impact
+// HVT position update rate (in seconds)
 HVT_POSITION_REFRESH_RATE = 5; // Update positions every 5 seconds
 
-// Percentage chance of intel decay occurring during each check
-// GAMEPLAY VARIABLE - Lower values make intel more persistent
+// Chance of intel decay occurring during each check
 HVT_DECAY_CHANCE = 75; // 75% chance of decay during each check
 
 // =====================================================================
-// HVT TARGET ARRAY - EDIT THIS TO ADD/MODIFY TARGETS
+// HVT TARGET ARRAY - DEFINE YOUR TARGETS HERE
 // =====================================================================
 
 // Format of each HVT entry:
@@ -56,9 +49,9 @@ HVT_DECAY_CHANCE = 75; // 75% chance of decay during each check
 //   false                      // Is target eliminated? (default: false)
 // ]
 
-// HVT targets array - default initialization with test targets
+// HVT targets array - GAMEPLAY: Define your targets here
 HVT_TARGETS = [
-    // Test HVT 1 - Enemy Officer
+    // Example HVT 1 - Enemy Officer
     [
         "hvt_1",                       // Variable name (must match unit in mission)
         "Colonel Hans Schmidt",        // Display name
@@ -79,7 +72,7 @@ HVT_TARGETS = [
         false                          // Not eliminated
     ],
     
-    // Test HVT 2 - Enemy Ship
+    // Example HVT 2 - Enemy Ship
     [
         "bismark",                     // Variable name (must match ship in mission)
         "KMS Bismarck",                // Display name
@@ -100,7 +93,7 @@ HVT_TARGETS = [
     ]
 ];
 
-// Target types with specific icon mappings
+// Target types with specific icon mappings - GAMEPLAY: Configure icon types
 HVT_TARGET_ICONS = [
     ["officer", "o_hq"], 
     ["scientist", "o_hq"],
@@ -111,172 +104,193 @@ HVT_TARGET_ICONS = [
 ];
 
 // =====================================================================
-// GLOBAL VARIABLES - DO NOT EDIT BELOW THIS LINE
+// GLOBAL VARIABLES - DO NOT EDIT
 // =====================================================================
 
-// Track marker IDs
-if (isNil "HVT_markers") then { HVT_markers = []; };
-
-// Track active HVT tasks
-if (isNil "HVT_activeTasks") then { HVT_activeTasks = []; };
-
-// Track last position updates
-if (isNil "HVT_lastPositions") then { HVT_lastPositions = []; };
-
-// Track the last time intel decay was checked
-if (isNil "HVT_lastDecayCheck") then { HVT_lastDecayCheck = time; };
-
-// Track helper objects for HVTs
-if (isNil "HVT_helperObjects") then { HVT_helperObjects = []; };
+// Create arrays to track system state
+HVT_markers = [];             // HVT map markers
+HVT_activeTasks = [];         // Active tasks tracking HVTs
+HVT_helperObjects = [];       // Invisible helper objects for position tracking
+HVT_lastDecayCheck = time;    // Last time intel decay was checked
+HVT_lastPositionUpdate = time; // Last time positions were updated
 
 // =====================================================================
-// HELPER FUNCTIONS - MUST BE DEFINED BEFORE USE
+// DEBUG HELPER FUNCTIONS
 // =====================================================================
 
-// Function to get intel level category from percentage
-fnc_getHVTIntelLevel = {
-    params ["_intelPercent"];
+// Function to log debug messages
+HVT_fnc_logDebug = {
+    params ["_message"];
     
-    if (_intelPercent >= HVT_INTEL_COMPLETE) then {
-        "complete"
-    } else {
-        if (_intelPercent >= HVT_INTEL_BASIC) then {
-            "basic"
-        } else {
-            "unknown"
-        };
+    if (HVT_DEBUG_MODE) then {
+        diag_log format ["HVT SYSTEM: %1", _message];
+        systemChat format ["HVT: %1", _message];
     };
 };
 
-// Helper object functions - MUST BE DEFINED FIRST
-fnc_createHVTHelperObjects = {
-    systemChat "Creating HVT helper objects...";
+// =====================================================================
+// CORE INITIALIZATION FUNCTIONS
+// =====================================================================
+
+// Initialize the entire HVT system
+HVT_fnc_initSystem = {
+    ["System initialization started"] call HVT_fnc_logDebug;
     
-    // Clear any existing helper objects
-    {
-        if (!isNull _x) then {
-            deleteVehicle _x;
-        };
-    } forEach HVT_helperObjects;
+    // Find all HVT units and initialize their positions
+    [] call HVT_fnc_findHVTUnits;
     
-    // Reset array
+    // Create map markers for all HVTs
+    [] call HVT_fnc_createMarkers;
+    
+    // Start position tracking
+    [] spawn HVT_fnc_startPositionTracking;
+    
+    // Start intel decay system
+    [] spawn HVT_fnc_startIntelDecay;
+    
+    // Start task monitoring
+    [] spawn HVT_fnc_startTaskMonitoring;
+    
+    ["System initialization complete"] call HVT_fnc_logDebug;
+};
+
+// Find all HVT units in the mission
+HVT_fnc_findHVTUnits = {
+    ["Finding HVT units"] call HVT_fnc_logDebug;
+    
+    // Create helper objects array
     HVT_helperObjects = [];
-    HVT_markers = []; // Also reset markers to be safe
     
-    // Create helper objects for each HVT
+    // Process each defined HVT
     {
         private _hvtIndex = _forEachIndex;
         private _varName = _x select 0;
         private _displayName = _x select 1;
-        private _type = _x select 2;
         
-        // Debug the unit identity first
-        systemChat format ["Processing HVT: %1 (%2) - Type: %3", _displayName, _varName, _type];
-        
-        // Get the actual unit/vehicle
+        // Try to find the unit by variable name
         private _unit = missionNamespace getVariable [_varName, objNull];
         
         if (!isNull _unit) then {
-            systemChat format ["Found unit %1 at position %2", _varName, getPos _unit];
+            // Get current position and update in data array
+            private _pos = getPos _unit;
+            (HVT_TARGETS select _hvtIndex) set [3, _pos];
             
-            // Create invisible helper object
-            private _helperType = "Land_HelipadEmpty_F"; // Completely invisible object
-            private _helper = createVehicle [_helperType, [0,0,0], [], 0, "NONE"];
-            
-            // Attach to the HVT unit
-            _helper attachTo [_unit, [0, 0, 0]];
+            // Create helper object for tracking
+            private _helper = "Land_HelipadEmpty_F" createVehicle [0,0,0];
+            _helper attachTo [_unit, [0,0,0]];
             
             // Store in array
             HVT_helperObjects set [_hvtIndex, _helper];
             
-            // Generate a unique marker name
-            private _markerName = format ["hvt_marker_%1", _hvtIndex];
-            
-            // Delete existing marker if it exists
-            if (markerType _markerName != "") then {
-                deleteMarkerLocal _markerName;
-            };
-            
-            // Create marker on the helper
-            private _marker = createMarkerLocal [_markerName, getPos _helper];
-            
-            // Set marker properties based on HVT type
-            private _intel = _x select 4;
-            private _captured = _x select 7;
-            private _eliminated = _x select 8;
-            
-            // Default markers for unknown
-            private _markerType = "mil_unknown";
-            private _markerColor = "ColorBlack";
-            private _markerText = "?";
-            
-            // Only show full details if we have enough intel
-            if (_intel >= HVT_INTEL_COMPLETE) then {
-                // Full intel - use type-specific markers
-                _markerColor = "ColorRed";
-                _markerText = _displayName;
-                
-                // Choose marker based on unit type
-                if (_type == "officer" || _type == "scientist") then {
-                    // For personnel, use a triangle/headshot icon
-                    _markerType = "mil_triangle";
-                    _markerName setMarkerSizeLocal [1.2, 1.2];
-                } else { 
-                    if (_type == "ship") then {
-                        // For ships, use a naval icon
-                        _markerType = "mil_triangle_noShadow";
-                        _markerColor = "ColorBlue";
-                    } else {
-                        // Default for other types
-                        _markerType = "mil_objective";
-                    };
-                };
-            } else { 
-                if (_intel >= HVT_INTEL_BASIC) then {
-                    // Basic intel - show type but not details
-                    _markerColor = "ColorOrange";
-                    _markerText = _type;
-                    _markerType = "mil_unknown";
-                };
-            };
-            
-            // Handle capture and elimination states
-            if (_eliminated) then {
-                _markerColor = "ColorBlack";
-                _markerText = format ["%1 (ELIMINATED)", _displayName];
-                _markerType = "mil_destroy";
-            } else {
-                if (_captured) then {
-                    _markerColor = "ColorGreen";
-                    _markerText = format ["%1 (CAPTURED)", _displayName];
-                    _markerType = "mil_end";
-                };
-            };
-            
-            // Apply marker properties
-            _markerName setMarkerTypeLocal _markerType;
-            _markerName setMarkerColorLocal _markerColor;
-            _markerName setMarkerTextLocal _markerText;
-            
-            // Store marker name
-            HVT_markers pushBack _markerName;
-            
-            systemChat format ["Created helper for %1 with marker type %2", _displayName, _markerType];
+            ["Found HVT: " + _displayName + " at position " + str(_pos)] call HVT_fnc_logDebug;
         } else {
-            systemChat format ["WARNING: Could not find unit for HVT: %1", _varName];
-            // Add placeholder to keep array indices aligned
+            ["WARNING: Could not find HVT: " + _varName] call HVT_fnc_logDebug;
+            // Add placeholder to maintain array indices
             HVT_helperObjects set [_hvtIndex, objNull];
-            HVT_markers pushBack "";
         };
     } forEach HVT_TARGETS;
 };
 
-// Function to update helper positions and markers
-fnc_updateHVTHelperPositions = {
+// Create markers for all HVTs
+HVT_fnc_createMarkers = {
+    ["Creating HVT markers"] call HVT_fnc_logDebug;
+    
+    // Initialize markers array
+    HVT_markers = [];
+    
+    // Create a marker for each HVT
     {
         private _hvtIndex = _forEachIndex;
-        private _helper = if (_hvtIndex < count HVT_helperObjects) then { HVT_helperObjects select _hvtIndex } else { objNull };
+        private _displayName = _x select 1;
+        private _type = _x select 2;
+        private _pos = _x select 3;
+        private _intel = _x select 4;
+        private _captured = _x select 7;
+        private _eliminated = _x select 8;
         
+        // Create marker name
+        private _markerName = format ["hvt_marker_%1", _hvtIndex];
+        
+        // Create marker
+        private _marker = createMarkerLocal [_markerName, _pos];
+        
+        // Set marker properties based on status and intel
+        if (_eliminated) then {
+            _markerName setMarkerTypeLocal "mil_destroy";
+            _markerName setMarkerColorLocal "ColorBlack";
+            _markerName setMarkerTextLocal format ["%1 (ELIMINATED)", _displayName];
+        } else {
+            if (_captured) then {
+                _markerName setMarkerTypeLocal "mil_end";
+                _markerName setMarkerColorLocal "ColorGreen";
+                _markerName setMarkerTextLocal format ["%1 (CAPTURED)", _displayName];
+            } else {
+                // Set appearance based on intel level
+                if (_intel >= HVT_INTEL_COMPLETE) then {
+                    if (_type == "officer") then {
+                        _markerName setMarkerTypeLocal "mil_triangle";
+                        _markerName setMarkerColorLocal "ColorRed";
+                        _markerName setMarkerTextLocal _displayName;
+                        _markerName setMarkerSizeLocal [1.2, 1.2];
+                    } else {
+                        if (_type == "ship") then {
+                            _markerName setMarkerTypeLocal "mil_triangle_noShadow";
+                            _markerName setMarkerColorLocal "ColorBlue";
+                            _markerName setMarkerTextLocal _displayName;
+                        } else {
+                            _markerName setMarkerTypeLocal "mil_objective";
+                            _markerName setMarkerColorLocal "ColorRed";
+                            _markerName setMarkerTextLocal _displayName;
+                        };
+                    };
+                } else {
+                    if (_intel >= HVT_INTEL_BASIC) then {
+                        _markerName setMarkerTypeLocal "mil_unknown";
+                        _markerName setMarkerColorLocal "ColorOrange";
+                        _markerName setMarkerTextLocal _type;
+                    } else {
+                        _markerName setMarkerTypeLocal "mil_unknown";
+                        _markerName setMarkerColorLocal "ColorBlack";
+                        _markerName setMarkerTextLocal "?";
+                    };
+                };
+            };
+        };
+        
+        // Store marker name in array
+        HVT_markers set [_hvtIndex, _markerName];
+        
+    } forEach HVT_TARGETS;
+};
+
+// Start position tracking loop
+HVT_fnc_startPositionTracking = {
+    ["Starting position tracking loop"] call HVT_fnc_logDebug;
+    
+    // Run continuous position update loop
+    while {true} do {
+        // Update positions
+        [] call HVT_fnc_updatePositions;
+        
+        // Store last update time
+        HVT_lastPositionUpdate = time;
+        
+        // Wait until next update
+        sleep HVT_POSITION_REFRESH_RATE;
+    };
+};
+
+// Update HVT positions and task markers
+HVT_fnc_updatePositions = {
+    {
+        private _hvtIndex = _forEachIndex;
+        private _helper = if (_hvtIndex < count HVT_helperObjects) then { 
+            HVT_helperObjects select _hvtIndex 
+        } else { 
+            objNull 
+        };
+        
+        // Only update if helper exists
         if (!isNull _helper) then {
             // Get position from helper
             private _pos = getPos _helper;
@@ -284,517 +298,156 @@ fnc_updateHVTHelperPositions = {
             // Update HVT data position
             (HVT_TARGETS select _hvtIndex) set [3, _pos];
             
-            // Update marker
-            private _markerName = if (_hvtIndex < count HVT_markers) then { HVT_markers select _hvtIndex } else { "" };
+            // Update marker position
+            private _markerName = if (_hvtIndex < count HVT_markers) then { 
+                HVT_markers select _hvtIndex 
+            } else { 
+                "" 
+            };
             
             if (_markerName != "") then {
                 _markerName setMarkerPosLocal _pos;
             };
+            
+            // Update any task markers for this HVT
+            {
+                private _taskData = _x;
+                
+                // Only process tasks for this HVT
+                if (count _taskData > 1 && {_taskData select 1 == _hvtIndex}) then {
+                    private _taskId = _taskData select 0;
+                    private _taskMarker = _taskData select 5;
+                    
+                    // Update task marker
+                    if (_taskMarker != "" && {markerType _taskMarker != ""}) then {
+                        _taskMarker setMarkerPos _pos;
+                        ["Updated marker position for task " + _taskId + " to " + str(_pos)] call HVT_fnc_logDebug;
+                    };
+                    
+                    // Update BIS task destination
+                    [_taskId, _pos] call BIS_fnc_taskSetDestination;
+                };
+            } forEach HVT_activeTasks;
         } else {
-            // Try to recreate helper if it's missing
+            // Try to recreate helper if missing
+            [] call HVT_fnc_checkAndRecreateHelper;
+        };
+    } forEach HVT_TARGETS;
+};
+
+// Check and recreate helper objects if needed
+HVT_fnc_checkAndRecreateHelper = {
+    {
+        private _hvtIndex = _forEachIndex;
+        private _helper = if (_hvtIndex < count HVT_helperObjects) then { 
+            HVT_helperObjects select _hvtIndex 
+        } else { 
+            objNull 
+        };
+        
+        // Check if helper is missing
+        if (isNull _helper) then {
             private _hvtData = HVT_TARGETS select _hvtIndex;
             private _varName = _hvtData select 0;
+            private _displayName = _hvtData select 1;
             private _unit = missionNamespace getVariable [_varName, objNull];
             
+            // Recreate if unit exists
             if (!isNull _unit) then {
-                // Create invisible helper object
-                private _helperType = "Land_HelipadEmpty_F";
-                private _helper = createVehicle [_helperType, [0,0,0], [], 0, "NONE"];
-                
-                // Attach to the HVT unit
-                _helper attachTo [_unit, [0, 0, 0]];
+                private _helper = "Land_HelipadEmpty_F" createVehicle [0,0,0];
+                _helper attachTo [_unit, [0,0,0]];
                 
                 // Store in array
                 HVT_helperObjects set [_hvtIndex, _helper];
                 
-                systemChat format ["Recreated helper for HVT: %1", _hvtData select 1];
+                ["Recreated helper for " + _displayName] call HVT_fnc_logDebug;
             };
         };
     } forEach HVT_TARGETS;
 };
 
-// Function to force a refresh of all HVT markers
-fnc_forceRefreshHVTMarkers = {
-    // Regenerate all helper objects
-    call fnc_createHVTHelperObjects;
+// Start intel decay system
+HVT_fnc_startIntelDecay = {
+    ["Starting intel decay system"] call HVT_fnc_logDebug;
     
-    // Force update
-    call fnc_updateHVTHelperPositions;
+    // Initialize last decay check time
+    HVT_lastDecayCheck = time;
     
-    systemChat "HVT markers refreshed";
-};
-
-// Function to force refresh for a single HVT
-fnc_forceSingleHVTRefresh = {
-    params ["_varName"];
-    
-    // Find the HVT index
-    private _hvtIndex = -1;
-    {
-        if (_x select 0 == _varName) exitWith {
-            _hvtIndex = _forEachIndex;
-        };
-    } forEach HVT_TARGETS;
-    
-    if (_hvtIndex == -1) exitWith {
-        systemChat format ["HVT not found: %1", _varName];
-    };
-    
-    // Get the unit
-    private _unit = missionNamespace getVariable [_varName, objNull];
-    if (isNull _unit) exitWith {
-        systemChat format ["Unit not found: %1", _varName];
-    };
-    
-    // Get existing helper
-    private _helper = if (_hvtIndex < count HVT_helperObjects) then {
-        HVT_helperObjects select _hvtIndex
-    } else {
-        objNull
-    };
-    
-    // If helper exists, delete it
-    if (!isNull _helper) then {
-        deleteVehicle _helper;
-    };
-    
-    // Create new helper
-    private _helperType = "Land_HelipadEmpty_F";
-    private _helper = createVehicle [_helperType, [0,0,0], [], 0, "NONE"];
-    _helper attachTo [_unit, [0, 0, 0]];
-    
-    // Update helper array
-    HVT_helperObjects set [_hvtIndex, _helper];
-    
-    // Generate marker name
-    private _markerName = format ["hvt_marker_%1", _hvtIndex];
-    
-    // Delete existing marker
-    if (markerType _markerName != "") then {
-        deleteMarkerLocal _markerName;
-    };
-    
-    // Create new marker
-    private _marker = createMarkerLocal [_markerName, getPos _helper];
-    
-    // Get HVT data
-    private _hvtData = HVT_TARGETS select _hvtIndex;
-    private _displayName = _hvtData select 1;
-    private _type = _hvtData select 2;
-    private _intel = _hvtData select 4;
-    
-    // Set marker type based on HVT type
-    if (_type == "officer") then {
-        _markerName setMarkerTypeLocal "mil_triangle";
-        _markerName setMarkerColorLocal "ColorRed";
-        _markerName setMarkerTextLocal _displayName;
-        _markerName setMarkerSizeLocal [1.2, 1.2];
-    } else {
-        if (_type == "ship") then {
-            _markerName setMarkerTypeLocal "mil_triangle_noShadow";
-            _markerName setMarkerColorLocal "ColorBlue";
-            _markerName setMarkerTextLocal _displayName;
-        } else {
-            _markerName setMarkerTypeLocal "mil_objective";
-            _markerName setMarkerColorLocal "ColorRed";
-            _markerName setMarkerTextLocal _displayName;
-        };
-    };
-    
-    // Update markers array
-    if (_hvtIndex < count HVT_markers) then {
-        HVT_markers set [_hvtIndex, _markerName];
-    } else {
-        HVT_markers pushBack _markerName;
-    };
-    
-    systemChat format ["Refreshed marker for %1 as type %2", _displayName, _type];
-};
-
-// Function to show/hide all HVT markers
-fnc_toggleHVTMarkers = {
-    params [["_show", true]];
-    
-    {
-        private _markerName = _x;
-        if (_markerName != "") then {
-            _markerName setMarkerAlphaLocal (if (_show) then {1} else {0});
-        };
-    } forEach HVT_markers;
-    
-    systemChat format ["HVT markers %1", if (_show) then {"shown"} else {"hidden"}];
-};
-
-// =====================================================================
-// CORE FUNCTIONS
-// =====================================================================
-
-// Initialize the HVT system
-fnc_initHVTSystem = {
-    // Find and initialize all HVT units
-    systemChat "Finding HVT units...";
-    call fnc_findHVTUnits;
-    
-    // Force the position update immediately for each HVT
-    {
-        private _hvtIndex = _forEachIndex;
-        private _varName = _x select 0;
-        private _displayName = _x select 1;
+    // Run continuous decay check loop
+    while {true} do {
+        // Check for intel decay
+        [] call HVT_fnc_processIntelDecay;
         
-        // Get the unit
-        private _unit = missionNamespace getVariable [_varName, objNull];
-        
-        if (!isNull _unit) then {
-            // Get current position and store it
-            private _pos = getPos _unit;
-            (HVT_TARGETS select _hvtIndex) set [3, _pos];
-            systemChat format ["Set initial position for %1: %2", _displayName, _pos];
-        };
-    } forEach HVT_TARGETS;
-    
-    // Create map markers for all HVTs
-    systemChat "Creating HVT markers...";
-    call fnc_createHVTMarkers;
-    
-    // Initialize position tracking
-    systemChat "Initializing position tracking...";
-    call fnc_initPositionTracking;
-    
-    // Initialize intel decay system
-    call fnc_initIntelDecay;
-    
-    // Log initialization
-    systemChat "High-Value Target System initialized!";
-    diag_log "HVT System initialized!";
-};
-
-// Find all HVT units in the mission
-fnc_findHVTUnits = {
-    {
-        private _hvtIndex = _forEachIndex;
-        private _varName = _x select 0;
-        
-        // Try to find the unit/vehicle in the mission
-        private _unit = missionNamespace getVariable [_varName, objNull];
-        
-        if (!isNull _unit) then {
-            // Store initial position
-            private _pos = getPos _unit;
-            (HVT_TARGETS select _hvtIndex) set [3, _pos];
-            
-            // Initialize last position
-            if (count HVT_lastPositions <= _hvtIndex) then {
-                HVT_lastPositions set [_hvtIndex, _pos];
-            } else {
-                HVT_lastPositions pushBack _pos;
-            };
-            
-            diag_log format ["HVT System: Found target %1 (%2) at position %3", _varName, _x select 1, _pos];
-        } else {
-            diag_log format ["HVT System: Warning - Could not find target %1 in mission!", _varName];
-        };
-    } forEach HVT_TARGETS;
-};
-
-// Initialize position tracking for mobile HVTs
-fnc_initPositionTracking = {
-    // First create helper objects
-    call fnc_createHVTHelperObjects;
-    
-    // Start position update loop
-    [] spawn {
-        while {true} do {
-            // Update helper positions
-            call fnc_updateHVTHelperPositions;
-            
-            // Wait for next update
-            sleep HVT_POSITION_REFRESH_RATE;
-        };
+        // Wait until next check
+        sleep HVT_DECAY_CHECK_INTERVAL;
     };
 };
 
-// Create map markers for all HVTs (Traditional method as backup)
-fnc_createHVTMarkers = {
-    systemChat "Creating HVT markers...";
-    
-    {
-        private _hvtIndex = _forEachIndex;
-        _x params ["_varName", "_displayName", "_type", "_pos", "_intel", "_tasks", "_briefings", "_captured", "_eliminated"];
-        
-        // Debug the unit
-        private _unit = missionNamespace getVariable [_varName, objNull];
-        if (!isNull _unit) then {
-            systemChat format ["Found HVT unit: %1 at position %2", _varName, getPos _unit];
-            // Force update position to the actual unit position
-            _pos = getPos _unit;
-            (HVT_TARGETS select _hvtIndex) set [3, _pos];
-        } else {
-            systemChat format ["WARNING: Could not find HVT unit: %1", _varName];
-        };
-        
-        // Create marker name
-        private _markerName = format ["hvt_marker_%1", _hvtIndex];
-        
-        // Create marker
-        private _marker = createMarkerLocal [_markerName, _pos];
-        _marker setMarkerPos _pos; // Explicitly set position
-        
-        // Set marker properties based on intel level and type
-        private _markerType = "mil_unknown";
-        private _markerColor = "ColorBlack";
-        private _markerText = "?";
-        
-        // Handle different intel levels
-        if (_intel >= HVT_INTEL_COMPLETE) then {
-            _markerColor = "ColorRed";
-            _markerText = _displayName;
-            
-            if (_type == "officer") then {
-                _markerType = "mil_triangle";
-            } else {
-                if (_type == "ship") then {
-                    _markerType = "mil_triangle_noShadow";
-                    _markerColor = "ColorBlue";
-                } else {
-                    _markerType = "mil_objective";
-                };
-            };
-        } else {
-            if (_intel >= HVT_INTEL_BASIC) then {
-                _markerColor = "ColorOrange";
-                _markerText = _type;
-                _markerType = "mil_unknown";
-            };
-        };
-        
-        // Handle capture/elimination status
-        if (_eliminated) then {
-            _markerColor = "ColorBlack";
-            _markerText = format ["%1 (ELIMINATED)", _displayName];
-            _markerType = "mil_destroy";
-        } else {
-            if (_captured) then {
-                _markerColor = "ColorGreen";
-                _markerText = format ["%1 (CAPTURED)", _displayName];
-                _markerType = "mil_end";
-            };
-        };
-        
-        // Apply the marker properties
-        _markerName setMarkerTypeLocal _markerType;
-        _markerName setMarkerColorLocal _markerColor;
-        _markerName setMarkerTextLocal _markerText;
-        _markerName setMarkerPos _pos;
-        
-        // Store marker name
-        if (count HVT_markers <= _hvtIndex) then {
-            HVT_markers set [_hvtIndex, _markerName];
-        } else {
-            HVT_markers pushBack _markerName;
-        };
-        
-        systemChat format ["Created HVT marker: %1 at position %2", _markerName, _pos];
-    } forEach HVT_TARGETS;
-};
-
-// Initialize intel decay system
-fnc_initIntelDecay = {
-    // Start intel decay check loop
-    [] spawn {
-        while {true} do {
-            // Check for intel decay
-            call fnc_checkIntelDecay;
-            
-            // Wait for next check
-            sleep HVT_DECAY_CHECK_INTERVAL;
-        };
-    };
-};
-
-// Check for intel decay
-fnc_checkIntelDecay = {
-    // Calculate time elapsed since last check
+// Process intel decay for all HVTs
+HVT_fnc_processIntelDecay = {
+    // Calculate time since last check
     private _currentTime = time;
     private _elapsedTime = _currentTime - HVT_lastDecayCheck;
     private _elapsedMinutes = _elapsedTime / 60;
     
-    // Update last decay check time
+    // Skip if not enough time has passed
+    if (_elapsedMinutes < 0.25) exitWith {};
+    
+    // Update last check time
     HVT_lastDecayCheck = _currentTime;
     
-    // Skip if elapsed time is too small
-    if (_elapsedMinutes < 0.5) exitWith {};
-    
-    // Calculate decay amount based on elapsed time
+    // Calculate decay amount
     private _decayAmount = _elapsedMinutes * HVT_INTEL_DECAY_RATE;
     
-    // Apply decay to each HVT
+    // Process each HVT
     {
         private _hvtIndex = _forEachIndex;
-        private _hvtData = _x;
-        private _captured = _hvtData select 7;
-        private _eliminated = _hvtData select 8;
+        private _captured = _x select 7;
+        private _eliminated = _x select 8;
         
-        // Only decay intel for targets that are not captured or eliminated
+        // Only decay intel for active HVTs
         if (!_captured && !_eliminated) then {
-            // Randomize decay based on chance
+            // Random chance to apply decay
             if (random 100 < HVT_DECAY_CHANCE) then {
-                // Apply intel decay
-                [_hvtIndex, -_decayAmount] call fnc_modifyHVTIntel;
+                [_hvtIndex, -_decayAmount] call HVT_fnc_modifyIntel;
             };
         };
     } forEach HVT_TARGETS;
 };
 
-// Function to modify HVT intel level
-fnc_modifyHVTIntel = {
-    params ["_hvtIndex", "_deltaIntel"];
+// Start task monitoring loop
+HVT_fnc_startTaskMonitoring = {
+    ["Starting task monitoring loop"] call HVT_fnc_logDebug;
     
-    // Ensure valid HVT index
-    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
-        diag_log format ["Invalid HVT index for intel modification: %1", _hvtIndex];
-        false
-    };
-    
-    private _hvtData = HVT_TARGETS select _hvtIndex;
-    private _currentIntel = _hvtData select 4;
-    
-    // Calculate new intel value (clamped between 0-100)
-    private _newIntel = (_currentIntel + _deltaIntel) min 100 max 0;
-    
-    // Store old intel level to check for threshold crossings
-    private _oldIntelLevel = [_currentIntel] call fnc_getHVTIntelLevel;
-    
-    // Update intel
-    _hvtData set [4, _newIntel];
-    
-    // Check if intel level changed
-    private _newIntelLevel = [_newIntel] call fnc_getHVTIntelLevel;
-    if (_oldIntelLevel != _newIntelLevel) then {
-        // Intel level crossed a threshold, update marker
-        [_hvtIndex] call fnc_forceSingleHVTRefresh;
+    // Run continuous task check loop
+    while {true} do {
+        // Check all tasks for completion
+        [] call HVT_fnc_checkTasks;
         
-        // Log the intel level change
-        diag_log format ["HVT intel level changed for %1: %2 to %3", 
-            _hvtData select 1, _oldIntelLevel, _newIntelLevel];
+        // Wait before next check
+        sleep 5;
     };
-    
-    // If this was a significant intel gain, provide feedback
-    if (_deltaIntel > 5) then {
-        systemChat format ["Intelligence on %1 increased.", _hvtData select 1];
-    };
-    
-    // If this was a significant intel loss, provide feedback
-    if (_deltaIntel < -5) then {
-        systemChat format ["Intelligence on %1 is becoming outdated.", _hvtData select 1];
-    };
-    
-    true
-};
-
-// Function to get the briefing text based on intel level
-fnc_getHVTBriefing = {
-    params ["_hvtIndex"];
-    
-    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
-        "Invalid target"
-    };
-    
-    private _hvtData = HVT_TARGETS select _hvtIndex;
-    _hvtData params ["_varName", "_displayName", "_type", "_pos", "_intel", "_tasks", "_briefings"];
-    
-    // Determine which briefing to use based on intel level
-    private _briefingIndex = 0;
-    
-    if (_intel >= HVT_INTEL_COMPLETE) then {
-        _briefingIndex = 2;
-    } else {
-        if (_intel >= HVT_INTEL_BASIC) then {
-            _briefingIndex = 1;
-        };
-    };
-    
-    // Check if we have a briefing for this level
-    if (_briefingIndex < count _briefings) then {
-        _briefings select _briefingIndex
-    } else {
-        "No briefing available"
-    };
-};
-
-// Function to mark a HVT as captured
-fnc_setCapturedHVT = {
-    params ["_hvtIndex", "_isCaptured"];
-    
-    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
-        diag_log format ["Invalid HVT index for capture state change: %1", _hvtIndex];
-        false
-    };
-    
-    // Update captured status
-    (HVT_TARGETS select _hvtIndex) set [7, _isCaptured];
-    
-    // Update marker
-    [_hvtIndex] call fnc_forceSingleHVTRefresh;
-    
-    // If captured, also disable the actual unit
-    if (_isCaptured) then {
-        private _varName = (HVT_TARGETS select _hvtIndex) select 0;
-        private _unit = missionNamespace getVariable [_varName, objNull];
-        
-        if (!isNull _unit) then {
-            _unit setCaptive true;
-            
-            // If it's a person, make them surrender
-            if (_unit isKindOf "Man") then {
-                _unit setUnitPos "UP";
-                _unit disableAI "ALL";
-                _unit setDamage 0; // Heal them
-            };
-        };
-    };
-    
-    true
-};
-
-// Function to mark a HVT as eliminated
-fnc_setEliminatedHVT = {
-    params ["_hvtIndex"];
-    
-    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
-        diag_log format ["Invalid HVT index for elimination: %1", _hvtIndex];
-        false
-    };
-    
-    // Update eliminated status
-    (HVT_TARGETS select _hvtIndex) set [8, true];
-    
-    // Also set captured to false
-    (HVT_TARGETS select _hvtIndex) set [7, false];
-    
-    // Update marker
-    [_hvtIndex] call fnc_forceSingleHVTRefresh;
-    
-    true
 };
 
 // =====================================================================
-// TASK INTEGRATION FUNCTIONS
+// TASK MANAGEMENT FUNCTIONS
 // =====================================================================
 
-// Create HVT task - similar to existing task system
-fnc_createHVTTask = {
+// Create a task for an HVT
+HVT_fnc_createTask = {
     params ["_hvtIndex", "_taskType", "_assignedUnits"];
     
-    // Safety checks
+    // Validate HVT index
     if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
-        diag_log format ["Invalid HVT index for task creation: %1", _hvtIndex];
+        ["Invalid HVT index for task creation: " + str(_hvtIndex)] call HVT_fnc_logDebug;
         ""
     };
     
+    // Get HVT data
     private _hvtData = HVT_TARGETS select _hvtIndex;
     _hvtData params ["_varName", "_displayName", "_type", "_pos", "_intel", "_tasks"];
     
-    // Find task name and rewards
+    // Find task details
     private _taskName = "";
     private _rewards = [];
     
@@ -806,21 +459,22 @@ fnc_createHVTTask = {
     } forEach _tasks;
     
     if (_taskName == "") exitWith {
-        diag_log format ["Task type %1 not found for HVT %2", _taskType, _displayName];
+        ["Task type " + _taskType + " not found for HVT " + _displayName] call HVT_fnc_logDebug;
         ""
     };
     
-    // Get unit object
-    private _unit = missionNamespace getVariable [_varName, objNull];
-    if (isNull _unit) exitWith {
-        diag_log format ["HVT unit %1 not found for task", _varName];
+    // Find target unit
+    private _targetUnit = missionNamespace getVariable [_varName, objNull];
+    
+    if (isNull _targetUnit) exitWith {
+        ["HVT unit " + _varName + " not found"] call HVT_fnc_logDebug;
         ""
     };
     
-    // Generate unique task ID
+    // Create unique task ID
     private _taskId = format ["hvt_task_%1_%2_%3", _hvtIndex, _taskType, round(serverTime)];
     
-    // Generate task description
+    // Create task description
     private _taskDescription = [
         format ["Operation %1: %2 - %3", 
             missionNamespace getVariable ["MISSION_operationName", "Unnamed"], 
@@ -831,7 +485,7 @@ fnc_createHVTTask = {
         format ["Op: %1 - %2", _taskName, _displayName]
     ];
     
-    // Create the task - integrate with BIS task system
+    // Create BIS task
     private _taskResult = [
         _assignedUnits,
         _taskId,
@@ -844,25 +498,34 @@ fnc_createHVTTask = {
     ] call BIS_fnc_taskCreate;
     
     if (_taskResult isEqualTo "") exitWith {
-        diag_log "HVT task creation failed";
+        ["Failed to create task"] call HVT_fnc_logDebug;
         ""
     };
     
     // Set as current task
     [_taskId] call BIS_fnc_taskSetCurrent;
     
-    // Create visible marker for Zeus
-    private _markerName = format ["zeus_hvt_marker_%1", _taskId];
+    // Create Zeus marker for task
+    private _markerName = format ["hvt_task_marker_%1", _taskId];
     private _marker = createMarker [_markerName, _pos];
     _marker setMarkerType "mil_objective";
-    _marker setMarkerColor "ColorBlue";
+    
+    // Set marker color based on task type
+    switch (_taskType) do {
+        case "track": { _marker setMarkerColor "ColorBlue"; };
+        case "kill": { _marker setMarkerColor "ColorRed"; };
+        case "capture": { _marker setMarkerColor "ColorGreen"; };
+        case "attack": { _marker setMarkerColor "ColorOrange"; };
+        default { _marker setMarkerColor "ColorBlue"; };
+    };
+    
     _marker setMarkerText _taskName;
     
-    // Add Zeus curator icon if z1 exists
+    // Add Zeus curator icon if possible
     private _curatorModule = missionNamespace getVariable ["z1", objNull];
     private _taskIcon = "\A3\ui_f\data\map\markers\military\objective_ca.paa";
     
-    // Select appropriate icon based on task type
+    // Select icon based on task type
     switch (_taskType) do {
         case "track": { _taskIcon = "\A3\ui_f\data\map\markers\military\recon_ca.paa"; };
         case "kill": { _taskIcon = "\A3\ui_f\data\map\markers\military\destroy_ca.paa"; };
@@ -871,162 +534,217 @@ fnc_createHVTTask = {
         default { _taskIcon = "\A3\ui_f\data\map\markers\military\objective_ca.paa"; };
     };
     
-    // Add curator icon if module exists
+    // Add icon
     private _iconID = -1;
     if (!isNull _curatorModule) then {
         private _iconText = format ["Op: %1 - %2", _taskName, _displayName];
-        _iconID = [_curatorModule, _taskIcon, [0, 0.3, 0.6, 1], _pos, 1, 1, 0, _iconText, false] call BIS_fnc_addCuratorIcon;
+        _iconID = [_curatorModule, [_taskIcon, [0, 0.3, 0.6, 1], _pos, 1, 1, 0, _iconText], false] call BIS_fnc_addCuratorIcon;
     };
     
-    // Store icon data for later removal
-    private _iconData = [_curatorModule, _iconID];
+    // For capture tasks, set up a trigger
+    private _taskTrigger = objNull;
+    if (_taskType == "capture") then {
+        _taskTrigger = createTrigger ["EmptyDetector", getPos _targetUnit, false];
+        _taskTrigger setTriggerArea [30, 30, 0, false];
+        _taskTrigger setTriggerActivation ["WEST", "PRESENT", false];
+        _taskTrigger setTriggerStatements [
+            "this && {({side _x == side player && _x distance thisTrigger < 30} count thisList > 0)}",
+            format [
+                "
+                (objectFromNetId '%1') setCaptive true;
+                (objectFromNetId '%1') disableAI 'ALL';
+                (objectFromNetId '%1') setVariable ['isSurrendered', true, true];
+                systemChat 'Target is surrendering!';
+                ",
+                netId _targetUnit
+            ],
+            ""
+        ];
+        
+        // Attach trigger to target
+        _taskTrigger attachTo [_targetUnit, [0,0,0]];
+    };
     
-    // Create HVT task object with necessary data
-    private _taskObject = [
-        _taskId,             // Task ID
-        _hvtIndex,           // HVT index
-        _taskType,           // Task type
-        _assignedUnits,      // Assigned units
-        serverTime,          // Creation time
-        "CREATED",           // Status
-        _unit,               // Target unit
-        {},                  // Completion condition (will be set below)
-        _markerName,         // Zeus marker name
-        _iconData            // Zeus icon data
+    // Store task data
+    private _taskData = [
+        _taskId,        // 0: Task ID
+        _hvtIndex,      // 1: HVT index
+        _taskType,      // 2: Task type
+        _assignedUnits, // 3: Assigned units
+        _targetUnit,    // 4: Target unit
+        _markerName,    // 5: Marker name
+        [_curatorModule, _iconID], // 6: Curator icon
+        _taskTrigger    // 7: Task trigger (for capture)
     ];
     
-    // Create completion condition based on task type
-    private _completionCode = {};
+    // Add to active tasks
+    HVT_activeTasks pushBack _taskData;
     
-    switch (_taskType) do {
-        case "track": {
-            _completionCode = {
-                params ["_taskObj"];
-                _taskObj params ["_taskId", "_hvtIndex", "_taskType", "_assignedUnits", "_startTime", "_status", "_targetUnit"];
-                
-                // Check if any assigned unit is near the target for long enough
-                private _trackingTime = 120; // 2 minutes of tracking
-                private _trackingRadius = 200; // 200m tracking radius
-                
-                // Get current position of target
-                private _targetPos = getPos _targetUnit;
-                
-                // Check if any assigned unit is within range
-                private _unitInRange = false;
-                {
-                    if (!isNull _x && {alive _x} && {_x distance _targetPos < _trackingRadius}) exitWith {
-                        _unitInRange = true;
-                    };
-                } forEach _assignedUnits;
-                
-                if (_unitInRange) then {
-                    // If unit is in range, give intel
-                    [_hvtIndex, 5] call fnc_modifyHVTIntel;
-                };
-                
-                // Task is complete when sufficient intel is gathered
-                private _hvtData = HVT_TARGETS select _hvtIndex;
-                private _intel = _hvtData select 4;
-                
-                _intel >= 100
-            };
-        };
-        
-        case "kill": {
-            _completionCode = {
-                params ["_taskObj"];
-                _taskObj params ["_taskId", "_hvtIndex", "_taskType", "_assignedUnits", "_startTime", "_status", "_targetUnit"];
-                
-                // Task is complete when target is dead
-                !alive _targetUnit
-            };
-        };
-        
-        case "capture": {
-            _completionCode = {
-                params ["_taskObj"];
-                _taskObj params ["_taskId", "_hvtIndex", "_taskType", "_assignedUnits", "_startTime", "_status", "_targetUnit"];
-                
-                // Task is complete when target is neutralized and a friendly unit is close
-                private _isCaptured = false;
-                
-                if (alive _targetUnit && {_targetUnit getVariable ["isSurrendered", false]}) then {
-                    // Check if a friendly unit is close
-                    private _friendlyNearby = false;
-                    {
-                        if (!isNull _x && {alive _x} && {_x distance _targetUnit < 10}) exitWith {
-                            _friendlyNearby = true;
-                        };
-                    } forEach _assignedUnits;
-                    
-                    if (_friendlyNearby) then {
-                        // Mark as captured
-                        [_hvtIndex, true] call fnc_setCapturedHVT;
-                        _isCaptured = true;
-                    };
-                };
-                
-                // Also consider a dead target a 'failed' capture
-                if (!alive _targetUnit) then {
-                    // Mark as eliminated
-                    [_hvtIndex, true] call fnc_setEliminatedHVT;
-                    _isCaptured = false;
-                    
-                    // Return false to signal failed task
-                    false
-                } else {
-                    // Return capture status
-                    _isCaptured
-                };
-            };
-        };
-        
-        case "attack": {
-            _completionCode = {
-                params ["_taskObj"];
-                _taskObj params ["_taskId", "_hvtIndex", "_taskType", "_assignedUnits", "_startTime", "_status", "_targetUnit"];
-                
-                // Task is complete when target is severely damaged or destroyed
-                (!alive _targetUnit) || (damage _targetUnit > 0.75)
-            };
-        };
-    };
+    ["Created task: " + _taskId + " for " + _displayName] call HVT_fnc_logDebug;
     
-    // Set the completion code
-    _taskObject set [7, _completionCode];
-    
-    // Add task to active tasks
-    HVT_activeTasks pushBack _taskObject;
-    
-    // Return the task ID
+    // Return task ID
     _taskId
 };
 
-// Function to complete a HVT task
-fnc_completeHVTTask = {
+// Check all tasks for completion
+HVT_fnc_checkTasks = {
+    private _completedTasks = [];
+    
+    {
+        private _taskData = _x;
+        
+        // Skip invalid data
+        if (count _taskData < 5) then {
+            continue;
+        };
+        
+        // Extract task info
+        private _taskId = _taskData select 0;
+        private _hvtIndex = _taskData select 1;
+        private _taskType = _taskData select 2;
+        private _assignedUnits = _taskData select 3;
+        private _targetUnit = _taskData select 4;
+        
+        // Skip if invalid HVT
+        if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) then {
+            continue;
+        };
+        
+        // Check completion based on task type
+        private _isComplete = false;
+        private _isSuccessful = false;
+        
+        switch (_taskType) do {
+            case "track": {
+                // Track is complete when intel reaches 100%
+                private _intel = (HVT_TARGETS select _hvtIndex) select 4;
+                
+                // Add intel if unit is nearby
+                if (!isNull _targetUnit) then {
+                    {
+                        if (!isNull _x && {alive _x} && {_x distance _targetUnit < 200}) exitWith {
+                            [_hvtIndex, 1] call HVT_fnc_modifyIntel;
+                        };
+                    } forEach _assignedUnits;
+                };
+                
+                // Complete when intel reaches 100%
+                _isComplete = (_intel >= 100);
+                _isSuccessful = _isComplete;
+            };
+            
+            case "kill": {
+                // Kill task is complete when target is dead
+                _isComplete = (isNull _targetUnit || !alive _targetUnit);
+                _isSuccessful = _isComplete;
+                
+                // Mark as eliminated
+                if (_isComplete) then {
+                    [_hvtIndex] call HVT_fnc_setEliminated;
+                };
+            };
+            
+            case "capture": {
+                // Check if target is captured
+                private _isSurrendered = !isNull _targetUnit && 
+                                          alive _targetUnit && 
+                                         {_targetUnit getVariable ["isSurrendered", false]};
+                                         
+                // Check if friendly unit is nearby
+                private _friendlyNearby = false;
+                if (_isSurrendered) then {
+                    {
+                        if (!isNull _x && alive _x && {_x distance _targetUnit < 10}) exitWith {
+                            _friendlyNearby = true;
+                        };
+                    } forEach _assignedUnits;
+                };
+                
+                // Complete if surrendered and friendly nearby
+                if (_isSurrendered && _friendlyNearby) then {
+                    _isComplete = true;
+                    _isSuccessful = true;
+                    [_hvtIndex, true] call HVT_fnc_setCaptured;
+                };
+                
+                // Also complete (but fail) if target died
+                if (isNull _targetUnit || !alive _targetUnit) then {
+                    _isComplete = true;
+                    _isSuccessful = false;
+                    [_hvtIndex] call HVT_fnc_setEliminated;
+                };
+            };
+            
+            case "attack": {
+                // Attack is complete when target is heavily damaged or destroyed
+                _isComplete = (isNull _targetUnit || !alive _targetUnit || damage _targetUnit > 0.75);
+                _isSuccessful = _isComplete;
+                
+                // Mark as eliminated if complete
+                if (_isComplete) then {
+                    [_hvtIndex] call HVT_fnc_setEliminated;
+                };
+            };
+            
+            default {
+                ["Unknown task type: " + _taskType] call HVT_fnc_logDebug;
+            };
+        };
+        
+        // Add to completed tasks list
+        if (_isComplete) then {
+            _completedTasks pushBack [_taskId, _isSuccessful];
+        };
+        
+    } forEach HVT_activeTasks;
+    
+    // Process all completed tasks
+    {
+        _x params ["_taskId", "_success"];
+        [_taskId, _success] call HVT_fnc_completeTask;
+    } forEach _completedTasks;
+};
+
+// Complete a task and give rewards
+HVT_fnc_completeTask = {
     params ["_taskId", "_success"];
     
     // Find task in active tasks
-    private _taskIndex = HVT_activeTasks findIf {(_x select 0) == _taskId};
+    private _taskIndex = -1;
+    {
+        if (_x select 0 == _taskId) exitWith {
+            _taskIndex = _forEachIndex;
+        };
+    } forEach HVT_activeTasks;
+    
     if (_taskIndex == -1) exitWith {
-        diag_log format ["HVT task not found: %1", _taskId];
+        ["Task not found: " + _taskId] call HVT_fnc_logDebug;
         false
     };
     
-    private _taskObj = HVT_activeTasks select _taskIndex;
-    _taskObj params ["_taskId", "_hvtIndex", "_taskType", "_assignedUnits", "_startTime", "_status", "_targetUnit", "_completionCode", "_markerName", "_iconData"];
+    private _taskData = HVT_activeTasks select _taskIndex;
+    
+    // Extract task info
+    private _hvtIndex = _taskData select 1;
+    private _taskType = _taskData select 2;
+    private _markerName = _taskData select 5;
+    private _iconData = _taskData select 6;
+    private _trigger = _taskData select 7;
     
     // Get HVT data
+    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
+        ["Invalid HVT index in task: " + str(_hvtIndex)] call HVT_fnc_logDebug;
+        false
+    };
+    
     private _hvtData = HVT_TARGETS select _hvtIndex;
     private _displayName = _hvtData select 1;
-    private _type = _hvtData select 2;
     private _tasks = _hvtData select 5;
     
     // Update task state
-    private _state = if (_success) then {"SUCCEEDED"} else {"FAILED"};
-    [_taskId, _state] call BIS_fnc_taskSetState;
+    [_taskId, if (_success) then {"SUCCEEDED"} else {"FAILED"}] call BIS_fnc_taskSetState;
     
-    // If successful, give rewards
+    // Process rewards if successful
     if (_success) then {
         // Find task rewards
         private _rewards = [];
@@ -1040,157 +758,436 @@ fnc_completeHVTTask = {
         {
             _x params ["_resourceType", "_amount"];
             
-            // Use economy system to add resources
             if (!isNil "RTS_fnc_modifyResource") then {
                 [_resourceType, _amount] call RTS_fnc_modifyResource;
                 systemChat format ["Received %1 %2 for completing task.", _amount, _resourceType];
             };
         } forEach _rewards;
         
-        // Update HVT status based on task type
+        // Update HVT status and provide feedback
         switch (_taskType) do {
             case "kill": {
-                [_hvtIndex] call fnc_setEliminatedHVT;
                 hint format ["Target eliminated: %1", _displayName];
                 systemChat format ["%1 has been eliminated.", _displayName];
             };
             case "capture": {
-                [_hvtIndex, true] call fnc_setCapturedHVT;
                 hint format ["Target captured: %1", _displayName];
-                systemChat format ["%1 has been captured and is awaiting interrogation.", _displayName];
+                systemChat format ["%1 has been captured.", _displayName];
             };
             case "attack": {
-                [_hvtIndex] call fnc_setEliminatedHVT;
                 hint format ["Target destroyed: %1", _displayName];
                 systemChat format ["%1 has been destroyed.", _displayName];
+            };
+            case "track": {
+                hint format ["Intelligence on %1 fully gathered", _displayName];
+                systemChat "Intelligence gathering complete.";
             };
         };
     } else {
         // Failed task feedback
-        hint format ["✗ Task Failed: %1 - %2", _taskType, _displayName];
-        systemChat format ["The operation targeting %1 has failed!", _displayName];
+        hint format ["Task failed: %1", _displayName];
+        systemChat format ["The operation against %1 has failed.", _displayName];
     };
     
-    // Clean up
-    // Delete Zeus marker
-    if (_markerName != "") then {
-        if (markerType _markerName != "") then {
-            deleteMarker _markerName;
+    // Cleanup
+    // Delete marker
+    if (_markerName != "" && markerType _markerName != "") then {
+        deleteMarker _markerName;
+    };
+    
+    // Remove curator icon
+    if (!isNil "_iconData" && count _iconData >= 2) then {
+        _iconData params ["_module", "_id"];
+        if (!isNull _module && _id != -1) then {
+            [_module, _id] call BIS_fnc_removeCuratorIcon;
         };
     };
     
-    // Remove Zeus curator icon
-    if (!isNil "_iconData" && {count _iconData >= 2}) then {
-        _iconData params ["_curatorModule", "_iconID"];
-        
-        if (!isNull _curatorModule && _iconID != -1) then {
-            [_curatorModule, _iconID] call BIS_fnc_removeCuratorIcon;
-        };
+    // Delete trigger
+    if (!isNull _trigger) then {
+        deleteVehicle _trigger;
     };
     
-    // Delete the task
+    // Delete BIS task
     [_taskId] call BIS_fnc_deleteTask;
     
     // Remove from active tasks
     HVT_activeTasks deleteAt _taskIndex;
     
+    ["Task " + _taskId + " completed with result: " + str(_success)] call HVT_fnc_logDebug;
     true
 };
 
-// Function to check HVT task completion
-fnc_checkHVTTasksCompletion = {
-    private _completedTasks = [];
+// =====================================================================
+// HVT STATUS MANAGEMENT FUNCTIONS
+// =====================================================================
+
+// Modify intel level for an HVT
+HVT_fnc_modifyIntel = {
+    params ["_hvtIndex", "_deltaIntel"];
     
-    {
-        private _taskObj = _x;
-        private _taskId = _taskObj select 0;
-        private _completionCode = _taskObj select 7;
-        
-        // Skip if missing critical information
-        if (_taskId == "" || _completionCode isEqualTo {}) then {
-            diag_log format ["Invalid HVT task data: %1", _taskObj];
-            continue;
-        };
-        
-        // Check if task is complete using its completion criteria
-        private _isComplete = _taskObj call _completionCode;
-        
-        if (_isComplete) then {
-            diag_log format ["HVT task %1 completion detected!", _taskId];
-            _completedTasks pushBack [_taskId, true]; // Mark for success
-        };
-    } forEach HVT_activeTasks;
+    // Validate index
+    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
+        ["Invalid HVT index for intel modification: " + str(_hvtIndex)] call HVT_fnc_logDebug;
+        false
+    };
     
-    // Process completed tasks
-    {
-        _x params ["_taskId", "_success"];
-        [_taskId, _success] call fnc_completeHVTTask;
-    } forEach _completedTasks;
+    // Get current intel
+    private _hvtData = HVT_TARGETS select _hvtIndex;
+    private _currentIntel = _hvtData select 4;
+    
+    // Calculate new intel (clamped to 0-100)
+    private _newIntel = (_currentIntel + _deltaIntel) min 100 max 0;
+    
+    // Store old intel level
+    private _oldIntelLevel = [_currentIntel] call HVT_fnc_getIntelLevel;
+    
+    // Update intel
+    _hvtData set [4, _newIntel];
+    HVT_TARGETS set [_hvtIndex, _hvtData];
+    
+    // Check if intel level changed
+    private _newIntelLevel = [_newIntel] call HVT_fnc_getIntelLevel;
+    
+    if (_oldIntelLevel != _newIntelLevel) then {
+        // Update marker for new intel level
+        [_hvtIndex] call HVT_fnc_updateMarker;
+        
+        // Provide feedback if intel increased
+        if (_newIntelLevel > _oldIntelLevel) then {
+            private _displayName = _hvtData select 1;
+            systemChat format ["Intelligence on %1 has increased.", _displayName];
+        };
+    };
+    
+    true
+};
+
+// Get intel level category
+HVT_fnc_getIntelLevel = {
+    params ["_intelPercent"];
+    
+    if (_intelPercent >= HVT_INTEL_COMPLETE) then {
+        "complete"
+    } else {
+        if (_intelPercent >= HVT_INTEL_BASIC) then {
+            "basic"
+        } else {
+            "unknown"
+        };
+    };
+};
+
+// Set an HVT as captured
+HVT_fnc_setCaptured = {
+    params ["_hvtIndex", "_isCaptured"];
+    
+    // Validate index
+    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
+        ["Invalid HVT index for capture: " + str(_hvtIndex)] call HVT_fnc_logDebug;
+        false
+    };
+    
+    // Update captured status
+    (HVT_TARGETS select _hvtIndex) set [7, _isCaptured];
+    
+    // Update marker
+    [_hvtIndex] call HVT_fnc_updateMarker;
+    
+    // Get target unit
+    private _varName = (HVT_TARGETS select _hvtIndex) select 0;
+    private _unit = missionNamespace getVariable [_varName, objNull];
+    
+    if (!isNull _unit) then {
+        _unit setCaptive true;
+        
+        // If it's a person, make them surrender
+        if (_unit isKindOf "Man") then {
+            _unit setUnitPos "UP";
+            _unit disableAI "ALL";
+            _unit setDamage 0; // Heal them
+        };
+    };
+    
+    ["HVT " + str(_hvtIndex) + " captured: " + str(_isCaptured)] call HVT_fnc_logDebug;
+    true
+};
+
+// Set an HVT as eliminated
+HVT_fnc_setEliminated = {
+    params ["_hvtIndex"];
+    
+    // Validate index
+    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
+        ["Invalid HVT index for elimination: " + str(_hvtIndex)] call HVT_fnc_logDebug;
+        false
+    };
+    
+    // Update eliminated status
+    (HVT_TARGETS select _hvtIndex) set [8, true];
+    (HVT_TARGETS select _hvtIndex) set [7, false]; // Not captured if eliminated
+    
+    // Update marker
+    [_hvtIndex] call HVT_fnc_updateMarker;
+    
+    // Log
+    private _displayName = (HVT_TARGETS select _hvtIndex) select 1;
+    ["HVT eliminated: " + _displayName + " (index " + str(_hvtIndex) + ")"] call HVT_fnc_logDebug;
+    true
+};
+
+// Update marker for an HVT
+HVT_fnc_updateMarker = {
+    params ["_hvtIndex"];
+    
+    // Validate index
+    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
+        ["Invalid HVT index for marker update: " + str(_hvtIndex)] call HVT_fnc_logDebug;
+        false
+    };
+    
+    // Get HVT data
+    private _hvtData = HVT_TARGETS select _hvtIndex;
+    private _displayName = _hvtData select 1;
+    private _type = _hvtData select 2;
+    private _pos = _hvtData select 3;
+    private _intel = _hvtData select 4;
+    private _captured = _hvtData select 7;
+    private _eliminated = _hvtData select 8;
+    
+    // Get marker name
+    private _markerName = if (_hvtIndex < count HVT_markers) then {
+        HVT_markers select _hvtIndex
+    } else {
+        format ["hvt_marker_%1", _hvtIndex]
+    };
+    
+    // Delete existing marker if it exists
+    if (markerType _markerName != "") then {
+        deleteMarkerLocal _markerName;
+    };
+    
+    // Create new marker
+    private _marker = createMarkerLocal [_markerName, _pos];
+    
+    // Set marker properties based on status and intel
+    if (_eliminated) then {
+        _markerName setMarkerTypeLocal "mil_destroy";
+        _markerName setMarkerColorLocal "ColorBlack";
+        _markerName setMarkerTextLocal format ["%1 (ELIMINATED)", _displayName];
+    } else {
+        if (_captured) then {
+            _markerName setMarkerTypeLocal "mil_end";
+            _markerName setMarkerColorLocal "ColorGreen";
+            _markerName setMarkerTextLocal format ["%1 (CAPTURED)", _displayName];
+        } else {
+            // Set appearance based on intel level
+            if (_intel >= HVT_INTEL_COMPLETE) then {
+                if (_type == "officer") then {
+                    _markerName setMarkerTypeLocal "mil_triangle";
+                    _markerName setMarkerColorLocal "ColorRed";
+                    _markerName setMarkerTextLocal _displayName;
+                    _markerName setMarkerSizeLocal [1.2, 1.2];
+                } else {
+                    if (_type == "ship") then {
+                        _markerName setMarkerTypeLocal "mil_triangle_noShadow";
+                        _markerName setMarkerColorLocal "ColorBlue";
+                        _markerName setMarkerTextLocal _displayName;
+                    } else {
+                        _markerName setMarkerTypeLocal "mil_objective";
+                        _markerName setMarkerColorLocal "ColorRed";
+                        _markerName setMarkerTextLocal _displayName;
+                    };
+                };
+            } else {
+                if (_intel >= HVT_INTEL_BASIC) then {
+                    _markerName setMarkerTypeLocal "mil_unknown";
+                    _markerName setMarkerColorLocal "ColorOrange";
+                    _markerName setMarkerTextLocal _type;
+                } else {
+                    _markerName setMarkerTypeLocal "mil_unknown";
+                    _markerName setMarkerColorLocal "ColorBlack";
+                    _markerName setMarkerTextLocal "?";
+                };
+            };
+        };
+    };
+    
+    // Update markers array
+    if (_hvtIndex < count HVT_markers) then {
+        HVT_markers set [_hvtIndex, _markerName];
+    } else {
+        HVT_markers pushBack _markerName;
+    };
+    
+    true
 };
 
 // =====================================================================
-// HELPER FUNCTIONS FOR EXTERNAL USE
+// UI INTEGRATION FUNCTIONS
 // =====================================================================
 
-// Add intel to HVT by index
-fnc_addHVTIntelByIndex = {
-    params ["_hvtIndex", "_amount"];
-    [_hvtIndex, _amount] call fnc_modifyHVTIntel;
+// Get briefing text for an HVT
+HVT_fnc_getBriefing = {
+    params ["_hvtIndex"];
+    
+    // Validate index
+    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
+        "Invalid target"
+    };
+    
+    // Get HVT data
+    private _hvtData = HVT_TARGETS select _hvtIndex;
+    private _intel = _hvtData select 4;
+    private _briefings = _hvtData select 6;
+    
+    // Determine which briefing to use based on intel level
+    private _briefingIndex = 0;
+    
+    if (_intel >= HVT_INTEL_COMPLETE) then {
+        _briefingIndex = 2;
+    } else {
+        if (_intel >= HVT_INTEL_BASIC) then {
+            _briefingIndex = 1;
+        };
+    };
+    
+    // Return briefing text
+    if (_briefingIndex < count _briefings) then {
+        _briefings select _briefingIndex
+    } else {
+        "No briefing available"
+    };
 };
 
-// Add intel to HVT by variable name
+// Show/hide HVT markers
+HVT_fnc_toggleMarkers = {
+    params [["_show", true]];
+    
+    {
+        private _markerName = _x;
+        if (_markerName != "") then {
+            _markerName setMarkerAlphaLocal (if (_show) then {1} else {0});
+        };
+    } forEach HVT_markers;
+    
+    ["HVT markers " + (if (_show) then {"shown"} else {"hidden"})] call HVT_fnc_logDebug;
+};
+
+// =====================================================================
+// INTERFACE FUNCTIONS FOR EXTERNAL USE
+// =====================================================================
+
+// Public interface for creating a task
+fnc_createHVTTask = {
+    params ["_hvtIndex", "_taskType", "_assignedUnits"];
+    [_hvtIndex, _taskType, _assignedUnits] call HVT_fnc_createTask
+};
+
+// Public interface for modifying intel
+fnc_modifyHVTIntel = {
+    params ["_hvtIndex", "_deltaIntel"];
+    [_hvtIndex, _deltaIntel] call HVT_fnc_modifyIntel
+};
+
+// Public interface for setting HVT as captured
+fnc_setCapturedHVT = {
+    params ["_hvtIndex", "_isCaptured"];
+    [_hvtIndex, _isCaptured] call HVT_fnc_setCaptured
+};
+
+// Public interface for setting HVT as eliminated
+fnc_setEliminatedHVT = {
+    params ["_hvtIndex"];
+    [_hvtIndex] call HVT_fnc_setEliminated
+};
+
+// Public interface for getting briefing
+fnc_getHVTBriefing = {
+    params ["_hvtIndex"];
+    [_hvtIndex] call HVT_fnc_getBriefing
+};
+
+// Public interface for toggling markers
+fnc_toggleHVTMarkers = {
+    params [["_show", true]];
+    [_show] call HVT_fnc_toggleMarkers
+};
+
+// Helper function to find HVT index by variable name
+fnc_findHVTIndexByName = {
+    params ["_varName"];
+    
+    // Search for HVT with this variable name
+    private _hvtIndex = -1;
+    {
+        if (_x select 0 == _varName) exitWith {
+            _hvtIndex = _forEachIndex;
+        };
+    } forEach HVT_TARGETS;
+    
+    _hvtIndex
+};
+
+// Public interface for adding intel by name
 fnc_addHVTIntelByName = {
     params ["_varName", "_amount"];
     
-    private _hvtIndex = HVT_TARGETS findIf {(_x select 0) == _varName};
+    private _hvtIndex = [_varName] call fnc_findHVTIndexByName;
     
     if (_hvtIndex != -1) then {
-        [_hvtIndex, _amount] call fnc_modifyHVTIntel;
+        [_hvtIndex, _amount] call HVT_fnc_modifyIntel;
         true
     } else {
-        diag_log format ["HVT target not found with name: %1", _varName];
+        ["HVT not found with name: " + _varName] call HVT_fnc_logDebug;
         false
     };
 };
 
-// =====================================================================
-// INITIALIZATION - CALL THIS TO START THE SYSTEM
-// =====================================================================
-
-// Visual feedback on HVT availability
-if (count HVT_TARGETS > 0) then {
-    {
-        private _varName = _x select 0;
-        private _displayName = _x select 1;
-        private _unit = missionNamespace getVariable [_varName, objNull];
-        
-        if (!isNull _unit) then {
-            systemChat format ["Found HVT: %1 (%2)", _displayName, _varName];
-        } else {
-            systemChat format ["Warning: HVT not found in mission: %1 (%2)", _displayName, _varName];
-        };
-    } forEach HVT_TARGETS;
-} else {
-    systemChat "Warning: No HVT targets defined!";
-};
-
-// Start the system with a slight delay to ensure initialization
-[] spawn {
-    sleep 2; // Give the mission time to fully initialize
-    systemChat "Starting HVT System...";
-    [] call fnc_initHVTSystem;
-    systemChat "HVT System is now active!";
+// Public interface for updating a single HVT marker
+fnc_forceSingleHVTRefresh = {
+    params ["_hvtIndex"];
     
-    // Start task checking loop
-    [] spawn {
-        while {true} do {
-            call fnc_checkHVTTasksCompletion;
-            sleep 5;
-        };
+    if (_hvtIndex >= 0 && _hvtIndex < count HVT_TARGETS) then {
+        [_hvtIndex] call HVT_fnc_updateMarker;
+        true
+    } else {
+        false
     };
-    
-    // Force a refresh of specific units to ensure proper markers
-    sleep 5;
-    ["hvt_1"] call fnc_forceSingleHVTRefresh;
-    ["bismark"] call fnc_forceSingleHVTRefresh;
 };
+
+// Allow refreshing by name too
+fnc_forceSingleHVTRefreshByName = {
+    params ["_varName"];
+    
+    private _hvtIndex = [_varName] call fnc_findHVTIndexByName;
+    
+    if (_hvtIndex != -1) then {
+        [_hvtIndex] call HVT_fnc_updateMarker;
+        true
+    } else {
+        false
+    };
+};
+
+// Function to force refresh of all HVT markers
+fnc_forceRefreshHVTMarkers = {
+    {
+        [_forEachIndex] call HVT_fnc_updateMarker;
+    } forEach HVT_TARGETS;
+    
+    ["All HVT markers refreshed"] call HVT_fnc_logDebug;
+    true
+};
+
+// =====================================================================
+// START SYSTEM INITIALIZATION
+// =====================================================================
+
+// Log system startup
+diag_log "=====================================";
+diag_log "HVT SYSTEM INITIALIZATION STARTED";
+diag_log "=====================================";
+
+// Initialize the system
+[] call HVT_fnc_initSystem;
