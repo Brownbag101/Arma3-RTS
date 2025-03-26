@@ -176,6 +176,16 @@ if (isNil "MISSION_operationName") then {
     MISSION_operationName = "Unnamed";
 };
 
+// Variable to track what type of target is selected (location or HVT)
+if (isNil "MISSION_selectedTargetType") then {
+    MISSION_selectedTargetType = "LOCATION";
+};
+
+// Index for HVT selection
+if (isNil "MISSION_selectedHVT") then {
+    MISSION_selectedHVT = -1;
+};
+
 // =====================================================================
 // CORE FUNCTIONS
 // =====================================================================
@@ -1472,47 +1482,90 @@ fnc_openTaskUI = {
     _background ctrlSetBackgroundColor [0, 0, 0, 0.8];
     _background ctrlCommit 0;
     
-    // Create title
-    private _title = _display ctrlCreate ["RscText", 9001];
-    _title ctrlSetPosition [0.1 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.8 * safezoneW, 0.05 * safezoneH];
+    // Create title row background - spanning full width
+    private _titleRow = _display ctrlCreate ["RscText", 9001];
+    _titleRow ctrlSetPosition [0.1 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.8 * safezoneW, 0.05 * safezoneH];
+    _titleRow ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+    _titleRow ctrlCommit 0;
+
+    // Create main title - left side
+    private _title = _display ctrlCreate ["RscText", 9002];
+    _title ctrlSetPosition [0.11 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.2 * safezoneW, 0.05 * safezoneH];
     _title ctrlSetText "Operations Command";
-    _title ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
     _title ctrlCommit 0;
+
+    // Create operation name label - center left
+    private _opNameLabel = _display ctrlCreate ["RscText", 9003];
+    _opNameLabel ctrlSetPosition [0.32 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.15 * safezoneW, 0.05 * safezoneH];
+    _opNameLabel ctrlSetText "Operation Name:";
+    _opNameLabel ctrlCommit 0;
+
+    // Create operation name input field - center
+    private _opNameInput = _display ctrlCreate ["RscEdit", 9004];
+    _opNameInput ctrlSetPosition [0.48 * safezoneW + safezoneX, 0.055 * safezoneH + safezoneY, 0.18 * safezoneW, 0.04 * safezoneH];
+    _opNameInput ctrlSetBackgroundColor [0.1, 0.1, 0.1, 0.8];
+    _opNameInput ctrlSetText MISSION_operationName;
+    _opNameInput ctrlCommit 0;
+    
+    // ===== ADD TARGET TYPE SELECTOR =====
+    // Create target type selector - more prominent position
+    private _targetTypeLabel = _display ctrlCreate ["RscText", 9005];
+    _targetTypeLabel ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.115 * safezoneH + safezoneY, 0.1 * safezoneW, 0.03 * safezoneH];
+    _targetTypeLabel ctrlSetText "Target Type:";
+    _targetTypeLabel ctrlSetTextColor [1, 1, 1, 1];
+    _targetTypeLabel ctrlCommit 0;
+    
+    // Create location button - more visible styling
+    private _locationBtn = _display ctrlCreate ["RscButton", 9006];
+    _locationBtn ctrlSetPosition [0.22 * safezoneW + safezoneX, 0.115 * safezoneH + safezoneY, 0.15 * safezoneW, 0.03 * safezoneH];
+    _locationBtn ctrlSetText "LOCATIONS";
+    _locationBtn ctrlSetTextColor [1, 1, 1, 1];
+    _locationBtn ctrlSetBackgroundColor (if (MISSION_selectedTargetType == "LOCATION") then {[0.3, 0.3, 0.7, 1]} else {[0.2, 0.2, 0.2, 1]});
+    _locationBtn ctrlSetEventHandler ["ButtonClick", "
+        MISSION_selectedTargetType = 'LOCATION'; 
+        [] call fnc_updateTargetTypeButtons; 
+        [] call fnc_updateTaskUI;
+        [true] call fnc_toggleLocationMarkers;
+        [false] call fnc_toggleHVTMarkers;
+        systemChat 'Switched to Locations view';
+    "];
+    _locationBtn ctrlCommit 0;
+    
+    // Create HVT button
+    private _hvtBtn = _display ctrlCreate ["RscButton", 9007];
+    _hvtBtn ctrlSetPosition [0.38 * safezoneW + safezoneX, 0.115 * safezoneH + safezoneY, 0.22 * safezoneW, 0.03 * safezoneH];
+    _hvtBtn ctrlSetText "HIGH-VALUE TARGETS";
+    _hvtBtn ctrlSetTextColor [1, 1, 1, 1];
+    _hvtBtn ctrlSetBackgroundColor (if (MISSION_selectedTargetType == "HVT") then {[0.3, 0.3, 0.7, 1]} else {[0.2, 0.2, 0.2, 1]});
+    _hvtBtn ctrlSetEventHandler ["ButtonClick", "
+    MISSION_selectedTargetType = 'HVT'; 
+    [] call fnc_updateTargetTypeButtons; 
+    [] call fnc_updateTaskUI;
+    [false] call fnc_toggleLocationMarkers;
+    [] call fnc_forceRefreshHVTMarkers;
+    [true] call fnc_toggleHVTMarkers;
+    systemChat 'Switched to High-Value Targets view';
+	"];
+    _hvtBtn ctrlCommit 0;
+    
+    // Store buttons in uiNamespace for updating
+    uiNamespace setVariable ["TASK_locationBtn", _locationBtn];
+    uiNamespace setVariable ["TASK_hvtBtn", _hvtBtn];
+    
+    // Create unit selection combo - right side
+    private _unitCombo = _display ctrlCreate ["RscCombo", 9401]; // Using specific high ID for z-order
+    _unitCombo ctrlSetPosition [0.67 * safezoneW + safezoneX, 0.055 * safezoneH + safezoneY, 0.22 * safezoneW, 0.04 * safezoneH];
+    _unitCombo ctrlCommit 0;
+
+    // Add available units/groups
+    [] call fnc_populateUnitCombo;
     
     // ===== CREATE MAP CONTROL =====
     // Create map control
     private _map = _display ctrlCreate ["RscMapControl", 9002];
-    _map ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.12 * safezoneH + safezoneY, 0.5 * safezoneW, 0.6 * safezoneH];
+    _map ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.5 * safezoneW, 0.57 * safezoneH];
     _map ctrlSetBackgroundColor [0.969, 0.957, 0.949, 1.0];
     _map ctrlCommit 0;
-    
-    // Enable showing task markers on map
-    //_map ctrlAddEventHandler ["Draw", {
-        //params ["_control"];
-        
-        // Draw custom markers for tasks on the map
-        //{
-        //    _x params ["_taskId", "_locationIndex", "_taskType", "_assignedUnits"];
-        //    
-        //    private _locationData = MISSION_LOCATIONS select _locationIndex;
-        //    private _pos = _locationData select 3;
-        //    
-        //    // Draw task indicator
-        //    _control drawIcon [
-        //        "\A3\ui_f\data\map\markers\military\objective_CA.paa",
-        //        [0, 0.3, 0.6, 1],
-        //        _pos,
-        //        24,
-        //        24,
-        //        0,
-        //        "Active Task",
-        //        1,
-        //        0.06,
-        //        "TahomaB",
-        //        "right"
-        //    ];
-        //} forEach MISSION_activeTasks;
-    //}];
     
     // ===== CREATE INFO PANELS =====
     // Create info panel
@@ -1520,39 +1573,6 @@ fnc_openTaskUI = {
     _infoPanel ctrlSetPosition [0.63 * safezoneW + safezoneX, 0.12 * safezoneH + safezoneY, 0.25 * safezoneW, 0.3 * safezoneH];
     _infoPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _infoPanel ctrlCommit 0;
-    
-    // Create title row background - spanning full width
-		private _titleRow = _display ctrlCreate ["RscText", 9001];
-		_titleRow ctrlSetPosition [0.1 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.8 * safezoneW, 0.05 * safezoneH];
-		_titleRow ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
-		_titleRow ctrlCommit 0;
-
-		// Create main title - left side
-		private _title = _display ctrlCreate ["RscText", 9002];
-		_title ctrlSetPosition [0.11 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.2 * safezoneW, 0.05 * safezoneH];
-		_title ctrlSetText "Operations Command";
-		_title ctrlCommit 0;
-
-		// Create operation name label - center left
-		private _opNameLabel = _display ctrlCreate ["RscText", 9003];
-		_opNameLabel ctrlSetPosition [0.32 * safezoneW + safezoneX, 0.05 * safezoneH + safezoneY, 0.15 * safezoneW, 0.05 * safezoneH];
-		_opNameLabel ctrlSetText "Operation Name:";
-		_opNameLabel ctrlCommit 0;
-
-		// Create operation name input field - center
-		private _opNameInput = _display ctrlCreate ["RscEdit", 9004];
-		_opNameInput ctrlSetPosition [0.48 * safezoneW + safezoneX, 0.055 * safezoneH + safezoneY, 0.18 * safezoneW, 0.04 * safezoneH];
-		_opNameInput ctrlSetBackgroundColor [0.1, 0.1, 0.1, 0.8];
-		_opNameInput ctrlSetText MISSION_operationName;
-		_opNameInput ctrlCommit 0;
-
-		// Create unit selection combo - right side
-		private _unitCombo = _display ctrlCreate ["RscCombo", 9401]; // Using specific high ID for z-order
-		_unitCombo ctrlSetPosition [0.67 * safezoneW + safezoneX, 0.055 * safezoneH + safezoneY, 0.22 * safezoneW, 0.04 * safezoneH];
-		_unitCombo ctrlCommit 0;
-
-		// Add available units/groups
-[] call fnc_populateUnitCombo;
     
     // Create intel bar background
     private _intelBarBg = _display ctrlCreate ["RscText", 9102];
@@ -1570,7 +1590,7 @@ fnc_openTaskUI = {
     // Create location info text
     private _infoText = _display ctrlCreate ["RscStructuredText", 9104];
     _infoText ctrlSetPosition [0.64 * safezoneW + safezoneX, 0.2 * safezoneH + safezoneY, 0.23 * safezoneW, 0.21 * safezoneH];
-    _infoText ctrlSetStructuredText parseText "Select a location on the map.";
+    _infoText ctrlSetStructuredText parseText "Select a target on the map.";
     _infoText ctrlCommit 0;
     
     // ===== CREATE TASK PANEL =====
@@ -1588,49 +1608,42 @@ fnc_openTaskUI = {
     _taskTitle ctrlCommit 0;
     
     // ===== CREATE TASK BUTTONS =====
-    // Create task buttons
+    // Create task buttons placeholder - they will be created in updateTaskUI
+    // We'll create up to 8 buttons (more than enough for either locations or HVTs)
     private _buttonHeight = 0.04 * safezoneH;
     private _buttonMargin = 0.01 * safezoneH;
     private _buttonY = 0.47 * safezoneH + safezoneY;
     
-    {
-        _x params ["_taskId", "_taskName", "_requiredIntel"];
-        
-        private _button = _display ctrlCreate ["RscButton", 9300 + _forEachIndex];
+    for "_i" from 0 to 7 do {
+        private _button = _display ctrlCreate ["RscButton", 9300 + _i];
         _button ctrlSetPosition [
             0.64 * safezoneW + safezoneX,
-            _buttonY + (_forEachIndex * (_buttonHeight + _buttonMargin)),
+            _buttonY + (_i * (_buttonHeight + _buttonMargin)),
             0.23 * safezoneW,
             _buttonHeight
         ];
-        _button ctrlSetText _taskName;
-        _button setVariable ["taskType", _taskId];
-        _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
-        _button ctrlSetEventHandler ["ButtonClick", "params ['_ctrl']; [_ctrl getVariable 'taskType'] call fnc_selectTask"];
+        _button ctrlSetText "";
         _button ctrlEnable false;
+        _button ctrlShow false;
         _button ctrlCommit 0;
-    } forEach TASK_TYPES;
-    
-    
-    
-    _unitCombo ctrlCommit 0;
+    };
     
     // ===== CREATE CONTROL BUTTONS =====
     // Create control buttons at bottom
-	private _confirmButton = _display ctrlCreate ["RscButton", 9500];
-	_confirmButton ctrlSetPosition [0.30 * safezoneW + safezoneX, 0.73 * safezoneH + safezoneY, 0.18 * safezoneW, 0.04 * safezoneH]; 
-	_confirmButton ctrlSetText "Confirm Operation";
-	_confirmButton ctrlSetBackgroundColor [0.2, 0.6, 0.2, 1];
-	_confirmButton ctrlEnable false;
-	_confirmButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_confirmTask"];
-	_confirmButton ctrlCommit 0;
+    private _confirmButton = _display ctrlCreate ["RscButton", 9500];
+    _confirmButton ctrlSetPosition [0.30 * safezoneW + safezoneX, 0.73 * safezoneH + safezoneY, 0.18 * safezoneW, 0.04 * safezoneH]; 
+    _confirmButton ctrlSetText "Confirm Operation";
+    _confirmButton ctrlSetBackgroundColor [0.2, 0.6, 0.2, 1];
+    _confirmButton ctrlEnable false;
+    _confirmButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_confirmTask"];
+    _confirmButton ctrlCommit 0;
 
-	private _cancelButton = _display ctrlCreate ["RscButton", 9501];
-	_cancelButton ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.73 * safezoneH + safezoneY, 0.15 * safezoneW, 0.04 * safezoneH];
-	_cancelButton ctrlSetText "Cancel";
-	_cancelButton ctrlSetBackgroundColor [0.6, 0.2, 0.2, 1];
-	_cancelButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
-_cancelButton ctrlCommit 0;
+    private _cancelButton = _display ctrlCreate ["RscButton", 9501];
+    _cancelButton ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.73 * safezoneH + safezoneY, 0.15 * safezoneW, 0.04 * safezoneH];
+    _cancelButton ctrlSetText "Cancel";
+    _cancelButton ctrlSetBackgroundColor [0.6, 0.2, 0.2, 1];
+    _cancelButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
+    _cancelButton ctrlCommit 0;
     
     // ===== MAP INTERACTION =====
     // Add map click handler
@@ -1640,41 +1653,72 @@ _cancelButton ctrlCommit 0;
         if (_button == 0) then { // Left click
             private _worldPos = _control ctrlMapScreenToWorld [_xPos, _yPos];
             
-            // Find closest location
-            private _closestIndex = -1;
-            private _closestDist = 1000000;
-            
-            {
-                private _locationPos = _x select 3;
-                private _dist = _worldPos distance _locationPos;
+            // Different handling based on target type
+            if (MISSION_selectedTargetType == "LOCATION") then {
+                // Find closest location
+                private _closestIndex = -1;
+                private _closestDist = 1000000;
                 
-                if (_dist < _closestDist && _dist < 300) then {
-                    _closestDist = _dist;
-                    _closestIndex = _forEachIndex;
+                {
+                    private _locationPos = _x select 3;
+                    private _dist = _worldPos distance _locationPos;
+                    
+                    if (_dist < _closestDist && _dist < 300) then {
+                        _closestDist = _dist;
+                        _closestIndex = _forEachIndex;
+                    };
+                } forEach MISSION_LOCATIONS;
+                
+                if (_closestIndex != -1) then {
+                    [_closestIndex] call fnc_selectLocation;
                 };
-            } forEach MISSION_LOCATIONS;
-            
-            if (_closestIndex != -1) then {
-                [_closestIndex] call fnc_selectLocation;
+            } else {
+                // Find closest HVT
+                private _closestIndex = -1;
+                private _closestDist = 1000000;
+                
+                {
+                    private _hvtPos = _x select 3;
+                    private _dist = _worldPos distance _hvtPos;
+                    
+                    if (_dist < _closestDist && _dist < 300) then {
+                        _closestDist = _dist;
+                        _closestIndex = _forEachIndex;
+                    };
+                } forEach HVT_TARGETS;
+                
+                if (_closestIndex != -1) then {
+                    [_closestIndex] call fnc_selectHVT;
+                };
             };
         };
     }];
     
+    // Set initial marker visibility based on the selected target type
+    if (MISSION_selectedTargetType == "LOCATION") then {
+        [true] call fnc_toggleLocationMarkers;
+        [false] call fnc_toggleHVTMarkers;
+    } else {
+        [false] call fnc_toggleLocationMarkers;
+        [true] call fnc_toggleHVTMarkers;
+    };
+    
     // ===== DIALOG CLOSURE =====
     // Add handler for dialog closure
-		_display displayAddEventHandler ["Unload", {
-		MISSION_taskUIOpen = false;
-		
-		// Save operation name before closing
-		private _opNameInput = findDisplay -1 displayCtrl 9004;
-		if (!isNull _opNameInput) then {
-			MISSION_operationName = ctrlText _opNameInput;
-		};
-		
-		// Reset selected location and task
-		MISSION_selectedLocation = -1;
-		MISSION_selectedTask = "";
-	}];
+    _display displayAddEventHandler ["Unload", {
+        MISSION_taskUIOpen = false;
+        
+        // Save operation name before closing
+        private _opNameInput = findDisplay -1 displayCtrl 9004;
+        if (!isNull _opNameInput) then {
+            MISSION_operationName = ctrlText _opNameInput;
+        };
+        
+        // Reset selected location and task
+        MISSION_selectedLocation = -1;
+        MISSION_selectedHVT = -1;
+        MISSION_selectedTask = "";
+    }];
     
     // Start UI update loop
     [] spawn {
@@ -1877,6 +1921,58 @@ fnc_selectLocation = {
             _briefing
         ];
     };
+	
+	// Make sure to update available task buttons for this location
+    private _buttonCount = 0;
+    {
+        _x params ["_taskId", "_taskName", "_rewards"];
+        
+        if (_buttonCount < 8) then { // Limit to 8 buttons
+            private _button = _display displayCtrl (9300 + _buttonCount);
+            
+            if (!isNull _button) then {
+                // Show the button
+                _button ctrlShow true;
+                _button ctrlSetText _taskName;
+                _button setVariable ["taskType", _taskId];
+                
+                // Enable or disable based on intel
+                private _taskTypeIndex = TASK_TYPES findIf {(_x select 0) == _taskId};
+                private _requiredIntel = 0;
+                
+                if (_taskTypeIndex != -1) then {
+                    _requiredIntel = (TASK_TYPES select _taskTypeIndex) select 2;
+                };
+                
+                private _enabled = _intel >= _requiredIntel;
+                
+                // Special case for 'defend' - only for player-controlled locations
+                if (_taskId == "defend") then {
+                    _enabled = _enabled && _captured;
+                };
+                
+                // Special cases for capture/destroy - only for enemy-controlled locations
+                if (_taskId == "capture" || _taskId == "destroy") then {
+                    _enabled = _enabled && !_captured;
+                };
+                
+                _button ctrlEnable _enabled;
+                
+                // Update button color if selected
+                if (MISSION_selectedTask == _taskId) then {
+                    _button ctrlSetBackgroundColor [0.3, 0.3, 0.7, 1];
+                } else {
+                    _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+                };
+                
+                // Add click handler
+                _button ctrlRemoveAllEventHandlers "ButtonClick";
+                _button ctrlSetEventHandler ["ButtonClick", format ["['%1'] call fnc_selectTask", _taskId]];
+                
+                _buttonCount = _buttonCount + 1;
+            };
+        };
+    } forEach _tasks;
     
     // Update available tasks
     {
@@ -1943,9 +2039,9 @@ fnc_selectTask = {
 
 // Function to confirm and create task
 fnc_confirmTask = {
-		private _display = findDisplay -1;
-	private _opNameInput = _display displayCtrl 9004;
-	MISSION_operationName = ctrlText _opNameInput;
+    private _display = findDisplay -1;
+    private _opNameInput = _display displayCtrl 9004;
+    MISSION_operationName = ctrlText _opNameInput;
     
     // Get selected unit(s)
     private _unitCombo = _display displayCtrl 9401;
@@ -1985,27 +2081,56 @@ fnc_confirmTask = {
         hint "Error: No units available for this assignment.";
     };
     
-    // Create the task - the function now handles unassigning previous tasks
-    private _taskId = [MISSION_selectedLocation, MISSION_selectedTask, _assignedUnits] call fnc_createTask;
+    // Create the task - based on target type
+    private _taskId = "";
+    
+    if (MISSION_selectedTargetType == "LOCATION") then {
+        // Create location task
+        _taskId = [MISSION_selectedLocation, MISSION_selectedTask, _assignedUnits] call fnc_createTask;
+    } else {
+        // Create HVT task
+        _taskId = [MISSION_selectedHVT, MISSION_selectedTask, _assignedUnits] call fnc_createHVTTask;
+    };
     
     if (_taskId != "") then {
         // Close the dialog
         closeDialog 0;
         
-        // Get location and task data for feedback
-        private _locationData = MISSION_LOCATIONS select MISSION_selectedLocation;
-        private _locationName = _locationData select 1;
-        private _locationType = _locationData select 2;
-        private _taskTypeIndex = TASK_TYPES findIf {(_x select 0) == MISSION_selectedTask};
-        private _taskTypeName = (TASK_TYPES select _taskTypeIndex) select 1;
+        // Get target name and task type for feedback
+        private _targetName = "";
+        private _targetType = "";
+        private _taskTypeText = "";
+        
+        if (MISSION_selectedTargetType == "LOCATION") then {
+            private _locationData = MISSION_LOCATIONS select MISSION_selectedLocation;
+            _targetName = _locationData select 1;
+            _targetType = _locationData select 2;
+            
+            // Get task type name
+            private _taskTypeIndex = TASK_TYPES findIf {(_x select 0) == MISSION_selectedTask};
+            if (_taskTypeIndex != -1) then {
+                _taskTypeText = (TASK_TYPES select _taskTypeIndex) select 1;
+            };
+        } else {
+            private _hvtData = HVT_TARGETS select MISSION_selectedHVT;
+            _targetName = _hvtData select 1;
+            _targetType = _hvtData select 2;
+            
+            // Find task name in HVT tasks
+            {
+                if (_x select 0 == MISSION_selectedTask) exitWith {
+                    _taskTypeText = _x select 1;
+                };
+            } forEach (_hvtData select 5);
+        };
         
         // Provide feedback
-        hint format ["New task created: %1 at %2", _taskTypeName, _locationName];
+        hint format ["New task created: %1 at %2", _taskTypeText, _targetName];
         systemChat format ["New orders issued to %1: %2 the %3 at %4.", 
             if (_selectedObject isEqualType grpNull) then {groupId _selectedObject} else {name _selectedObject},
-            _taskTypeName,
-            _locationType,
-            _locationName
+            _taskTypeText,
+            _targetType,
+            _targetName
         ];
     } else {
         hint "Error creating task. Please try again.";
@@ -2016,9 +2141,307 @@ fnc_confirmTask = {
 fnc_updateTaskUI = {
     private _display = findDisplay -1;
     
-    // If a location is selected, update its info
-    if (MISSION_selectedLocation != -1) then {
-        [MISSION_selectedLocation] call fnc_selectLocation;
+    // Clear all task buttons first
+    for "_i" from 0 to 7 do {
+        private _button = _display displayCtrl (9300 + _i);
+        if (!isNull _button) then {
+            _button ctrlShow false;
+            _button ctrlEnable false;
+            _button ctrlSetText "";
+            _button setVariable ["taskType", ""];
+        };
+    };
+    
+    // Update based on target type
+    if (MISSION_selectedTargetType == "LOCATION") then {
+        // If a location is selected, update its info
+        if (MISSION_selectedLocation != -1) then {
+            // Show the location info
+            [MISSION_selectedLocation] call fnc_selectLocation;
+            
+            // Make sure the task buttons for locations are showing
+            if (MISSION_selectedLocation >= 0 && MISSION_selectedLocation < count MISSION_LOCATIONS) then {
+                private _locationData = MISSION_LOCATIONS select MISSION_selectedLocation;
+                private _intel = _locationData select 4;
+                private _tasks = _locationData select 5;
+                private _captured = _locationData select 7;
+                
+                // Update available task buttons
+                private _buttonCount = 0;
+                {
+                    _x params ["_taskId", "_taskName", "_rewards"];
+                    private _button = _display displayCtrl (9300 + _buttonCount);
+                    
+                    if (!isNull _button) then {
+                        // Show the button
+                        _button ctrlShow true;
+                        _button ctrlSetText _taskName;
+                        _button setVariable ["taskType", _taskId];
+                        
+                        // Enable button if we have enough intel
+                        private _requiredIntel = 0;
+                        {
+                            if (_x select 0 == _taskId) exitWith {
+                                _requiredIntel = _x select 2;
+                            };
+                        } forEach TASK_TYPES;
+                        
+                        // Enable or disable based on intel and special cases
+                        private _enabled = _intel >= _requiredIntel;
+                        
+                        // Special case for 'defend' - only for player-controlled locations
+                        if (_taskId == "defend") then {
+                            _enabled = _enabled && _captured;
+                        };
+                        
+                        // Special cases for capture/destroy - only for enemy-controlled locations
+                        if (_taskId == "capture" || _taskId == "destroy") then {
+                            _enabled = _enabled && !_captured;
+                        };
+                        
+                        _button ctrlEnable _enabled;
+                        
+                        // Update button color if selected
+                        if (MISSION_selectedTask == _taskId) then {
+                            _button ctrlSetBackgroundColor [0.3, 0.3, 0.7, 1];
+                        } else {
+                            _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+                        };
+                        
+                        // Set event handler
+                        _button ctrlSetEventHandler ["ButtonClick", format ["['%1'] call fnc_selectTask", _taskId]];
+                        
+                        _buttonCount = _buttonCount + 1;
+                    };
+                } forEach _tasks;
+                
+                // Update confirm button
+                private _confirmButton = _display displayCtrl 9500;
+                if (!isNull _confirmButton) then {
+                    _confirmButton ctrlEnable (MISSION_selectedTask != "");
+                };
+            };
+        };
+    } else {
+        // If an HVT is selected, update its info
+        if (MISSION_selectedHVT != -1) then {
+            [MISSION_selectedHVT] call fnc_selectHVT;
+        };
+    };
+};
+
+
+// Function to update target type button visuals
+fnc_updateTargetTypeButtons = {
+    private _locationBtn = uiNamespace getVariable ["TASK_locationBtn", controlNull];
+    private _hvtBtn = uiNamespace getVariable ["TASK_hvtBtn", controlNull];
+    
+    if (!isNull _locationBtn && !isNull _hvtBtn) then {
+        _locationBtn ctrlSetBackgroundColor (if (MISSION_selectedTargetType == "LOCATION") then {[0.3, 0.3, 0.7, 1]} else {[0.2, 0.2, 0.2, 1]});
+        _hvtBtn ctrlSetBackgroundColor (if (MISSION_selectedTargetType == "HVT") then {[0.3, 0.3, 0.7, 1]} else {[0.2, 0.2, 0.2, 1]});
+    };
+};
+
+// Function to select an HVT
+fnc_selectHVT = {
+    params ["_hvtIndex"];
+    
+    private _display = findDisplay -1;
+    
+    // Safety check for valid display
+    if (isNull _display) exitWith {
+        diag_log "fnc_selectHVT: Display is null!";
+    };
+    
+    // Safety check for valid HVT index
+    if (_hvtIndex < 0 || _hvtIndex >= count HVT_TARGETS) exitWith {
+        diag_log format ["fnc_selectHVT: Invalid HVT index: %1", _hvtIndex];
+        
+        // Update info text to show error
+        private _infoText = _display displayCtrl 9104;
+        if (!isNull _infoText) then {
+            _infoText ctrlSetStructuredText parseText "<t color='#FF0000'>Error: Invalid target selected.</t>";
+        };
+    };
+    
+    // Check if HVT is eliminated
+    private _isEliminated = (HVT_TARGETS select _hvtIndex) select 8;
+    
+    if (_isEliminated) exitWith {
+        // Provide feedback and prevent selection
+        private _infoText = _display displayCtrl 9104;
+        
+        if (!isNull _infoText) then {
+            private _hvtData = HVT_TARGETS select _hvtIndex;
+            private _displayName = "Unknown";
+            
+            if (count _hvtData > 1) then {
+                _displayName = _hvtData select 1;
+            };
+            
+            _infoText ctrlSetStructuredText parseText format [
+                "<t size='1.2'>%1</t><br/>" +
+                "<t color='#FF0000'>ELIMINATED</t><br/><br/>" +
+                "This target has been eliminated and is no longer available for operations.",
+                _displayName
+            ];
+        };
+        
+        // Disable all task buttons
+        for "_i" from 0 to 7 do {
+            private _button = _display displayCtrl (9300 + _i);
+            if (!isNull _button) then {
+                _button ctrlShow false;
+                _button ctrlEnable false;
+            };
+        };
+        
+        // Update confirm button
+        private _confirmButton = _display displayCtrl 9500;
+        if (!isNull _confirmButton) then {
+            _confirmButton ctrlEnable false;
+        };
+        
+        // Set selected HVT to -1 to indicate no valid selection
+        MISSION_selectedHVT = -1;
+        MISSION_selectedTask = "";
+    };
+    
+    // Safe extraction of HVT data
+    private _hvtData = HVT_TARGETS select _hvtIndex;
+    
+    // Error handling for invalid HVT data
+    if (count _hvtData < 7) exitWith {
+        diag_log format ["fnc_selectHVT: HVT data at index %1 is incomplete", _hvtIndex];
+        
+        private _infoText = _display displayCtrl 9104;
+        if (!isNull _infoText) then {
+            _infoText ctrlSetStructuredText parseText "<t color='#FF0000'>Error: Target data is corrupted.</t>";
+        };
+    };
+    
+    // Safely extract parameters with defaults
+    private _varName = _hvtData param [0, "unknown_id"];
+    private _displayName = _hvtData param [1, "Unknown Target"];
+    private _type = _hvtData param [2, "unknown"];
+    private _pos = _hvtData param [3, [0,0,0]];
+    private _intel = _hvtData param [4, 0];
+    private _tasks = _hvtData param [5, []];
+    private _briefings = _hvtData param [6, []];
+    private _captured = _hvtData param [7, false];
+    
+    // Update selected HVT
+    MISSION_selectedHVT = _hvtIndex;
+    
+    // Update intel bar
+    private _intelBar = _display displayCtrl 9103;
+    if (!isNull _intelBar) then {
+        _intelBar progressSetPosition (_intel / 100);
+    };
+    
+    // Update info text
+    private _infoText = _display displayCtrl 9104;
+    if (!isNull _infoText) then {
+        private _briefing = "No information available.";
+        
+        try {
+            _briefing = [_hvtIndex] call fnc_getHVTBriefing;
+        } catch {
+            diag_log format ["Error getting HVT briefing: %1", _exception];
+        };
+        
+        private _intelLevel = "unknown";
+        try {
+            _intelLevel = [_intel] call fnc_getHVTIntelLevel;
+        } catch {
+            diag_log format ["Error getting intel level: %1", _exception];
+        };
+        
+        private _intelColor = switch (_intelLevel) do {
+            case "complete": { "#00FF00" }; // Green
+            case "basic": { "#FFFF00" }; // Yellow
+            default { "#FF0000" }; // Red
+        };
+        
+        private _statusText = if (_captured) then {
+            "<t color='#00FF00'>CAPTURED</t>"
+        } else {
+            "<t color='#FF0000'>ACTIVE</t>"
+        };
+        
+        _infoText ctrlSetStructuredText parseText format [
+            "<t size='1.2'>%1</t><br/>" +
+            "<t color='%2'>Intelligence: %3%4</t> - %5<br/><br/>" +
+            "%6",
+            _displayName,
+            _intelColor,
+            round _intel,
+            "%",
+            _statusText,
+            _briefing
+        ];
+    };
+    
+    // Update available tasks - clear existing buttons first
+    for "_i" from 0 to 7 do {
+        private _button = _display displayCtrl (9300 + _i);
+        if (!isNull _button) then {
+            _button ctrlShow false;
+            _button ctrlEnable false;
+            _button ctrlSetText "";
+            _button setVariable ["taskType", ""];
+        };
+    };
+    
+    // Show task buttons based on available tasks for this HVT
+    private _buttonCount = 0;
+    
+    {
+        _x params ["_taskId", "_taskName", "_rewards"];
+        
+        if (_buttonCount < 8) then { // Make sure we don't exceed available buttons
+            private _button = _display displayCtrl (9300 + _buttonCount);
+            
+            if (!isNull _button) then {
+                // Show the button
+                _button ctrlShow true;
+                _button ctrlSetText _taskName;
+                _button setVariable ["taskType", _taskId];
+                
+                // Enable or disable based on intel and status
+                private _enabled = _intel >= HVT_INTEL_BASIC; // Require at least basic intel
+                
+                // Special case for 'capture' - can't capture an eliminated or already captured target
+                if (_taskId == "capture") then {
+                    _enabled = _enabled && !_captured;
+                };
+                
+                // Can't 'kill' a captured target
+                if (_taskId == "kill") then {
+                    _enabled = _enabled && !_captured;
+                };
+                
+                _button ctrlEnable _enabled;
+                
+                // Update button color if selected
+                if (MISSION_selectedTask == _taskId) then {
+                    _button ctrlSetBackgroundColor [0.3, 0.3, 0.7, 1];
+                } else {
+                    _button ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+                };
+                
+                // Add click handler
+                _button ctrlSetEventHandler ["ButtonClick", format ["['%1'] call fnc_selectTask", _taskId]];
+                
+                _buttonCount = _buttonCount + 1;
+            };
+        };
+    } forEach _tasks;
+    
+    // Update confirm button
+    private _confirmButton = _display displayCtrl 9500;
+    if (!isNull _confirmButton) then {
+        _confirmButton ctrlEnable (MISSION_selectedTask != "");
     };
 };
 
@@ -2298,6 +2721,20 @@ fnc_isLocationDestroyed = {
     } else {
         false
     };
+};
+
+// Function to show/hide all location markers
+fnc_toggleLocationMarkers = {
+    params [["_show", true]];
+    
+    {
+        private _markerName = format ["task_location_%1", _forEachIndex];
+        if (markerType _markerName != "") then {
+            _markerName setMarkerAlphaLocal (if (_show) then {1} else {0});
+        };
+    } forEach MISSION_LOCATIONS;
+    
+    systemChat format ["Location markers %1", if (_show) then {"shown"} else {"hidden"}];
 };
 
 // =====================================================================

@@ -212,36 +212,78 @@ fnc_prepareLocationForRecapture = {
 };
 
 // Hook into the existing task system by overriding the capture location function
-// Store the original function first
-if (isNil "original_fnc_setCapturedLocation") then {
+// First make sure the task system is loaded
+if (isNil "fnc_setCapturedLocation") then {
+    diag_log "WARNING: fnc_setCapturedLocation not defined yet - will wait for task system to load";
+    
+    // Wait until task system is ready
+    [] spawn {
+        waitUntil {!isNil "fnc_setCapturedLocation"};
+        
+        // Now store the original function
+        original_fnc_setCapturedLocation = fnc_setCapturedLocation;
+        
+        // Then redefine it
+        fnc_setCapturedLocation = {
+            params ["_locationIndex", "_isCaptured"];
+            
+            // Get previous capture status
+            private _wasCaptured = false;
+            if (_locationIndex >= 0 && _locationIndex < count MISSION_LOCATIONS) then {
+                _wasCaptured = (MISSION_LOCATIONS select _locationIndex) select 7;
+            };
+            
+            // Call original function
+            private _result = [_locationIndex, _isCaptured] call original_fnc_setCapturedLocation;
+            
+            // Handle resource bonuses
+            if (_isCaptured && !_wasCaptured) then {
+                diag_log format ["FACTORY SYSTEM: Location %1 captured, applying resource bonuses", _locationIndex];
+                [_locationIndex] call fnc_applyLocationResourceBonus;
+            };
+            
+            if (!_isCaptured && _wasCaptured) then {
+                diag_log format ["FACTORY SYSTEM: Location %1 lost, removing resource bonuses", _locationIndex];
+                [_locationIndex] call fnc_removeLocationResourceBonus;
+            };
+            
+            _result
+        };
+        
+        diag_log "Factory resource system has successfully hooked into task system";
+    };
+} else {
+    // Store the original function
     original_fnc_setCapturedLocation = fnc_setCapturedLocation;
 };
 
 // Create new version that calls the original and adds our factory resource logic
-fnc_setCapturedLocation = {
-    params ["_locationIndex", "_isCaptured"];
-    
-    // Get previous capture status
-    private _wasCaptured = false;
-    if (_locationIndex >= 0 && _locationIndex < count MISSION_LOCATIONS) then {
-        _wasCaptured = (MISSION_LOCATIONS select _locationIndex) select 7;
+if (!isNil "original_fnc_setCapturedLocation") then {
+    fnc_setCapturedLocation = {
+        params ["_locationIndex", "_isCaptured"];
+        
+        // Get previous capture status
+        private _wasCaptured = false;
+        if (_locationIndex >= 0 && _locationIndex < count MISSION_LOCATIONS) then {
+            _wasCaptured = (MISSION_LOCATIONS select _locationIndex) select 7;
+        };
+        
+        // Call original function
+        private _result = [_locationIndex, _isCaptured] call original_fnc_setCapturedLocation;
+        
+        // Handle resource bonuses
+        if (_isCaptured && !_wasCaptured) then {
+            diag_log format ["FACTORY SYSTEM: Location %1 captured, applying resource bonuses", _locationIndex];
+            [_locationIndex] call fnc_applyLocationResourceBonus;
+        };
+        
+        if (!_isCaptured && _wasCaptured) then {
+            diag_log format ["FACTORY SYSTEM: Location %1 lost, removing resource bonuses", _locationIndex];
+            [_locationIndex] call fnc_removeLocationResourceBonus;
+        };
+        
+        _result
     };
-    
-    // Call original function
-    private _result = [_locationIndex, _isCaptured] call original_fnc_setCapturedLocation;
-    
-    // Handle resource bonuses
-    if (_isCaptured && !_wasCaptured) then {
-        diag_log format ["FACTORY SYSTEM: Location %1 captured, applying resource bonuses", _locationIndex];
-        [_locationIndex] call fnc_applyLocationResourceBonus;
-    };
-    
-    if (!_isCaptured && _wasCaptured) then {
-        diag_log format ["FACTORY SYSTEM: Location %1 lost, removing resource bonuses", _locationIndex];
-        [_locationIndex] call fnc_removeLocationResourceBonus;
-    };
-    
-    _result
 };
 
 

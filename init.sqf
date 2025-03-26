@@ -12,8 +12,23 @@ if (hasInterface) then {
     [] execVM "scripts\economy\economyInit.sqf";
 	
 
-	// Load Task System
+	// First load task system
+	systemChat "Loading task system...";
 	[] execVM "scripts\mission\taskSystemArray.sqf";
+
+	// Wait a moment to ensure task system is initialized
+	[] spawn {
+		sleep 3;
+		
+		// Then load HVT system
+		systemChat "Loading HVT system...";
+		[] execVM "scripts\mission\hvtSystem.sqf";
+		
+		// Then load factory system after a slight delay
+		sleep 2;
+		systemChat "Loading factory resource system...";
+		[] execVM "scripts\mission\factoryResourceSystem.sqf";
+	};
 	
     // Load menu system
     [] execVM "scripts\menu\menuInit.sqf";
@@ -27,8 +42,6 @@ if (hasInterface) then {
     
     // Initialize weapon toggle system for vehicles
     [] execVM "scripts\actions\vehicleActions\weaponToggleInit.sqf";
-	
-	[] execVM "scripts\mission\factoryResourceSystem.sqf";
 	
 	// Load Unit Management System
     [] execVM "scripts\menu\unitManagementInit.sqf";
