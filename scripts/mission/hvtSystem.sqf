@@ -316,7 +316,9 @@ HVT_fnc_updatePositions = {
                 // Only process tasks for this HVT
                 if (count _taskData > 1 && {_taskData select 1 == _hvtIndex}) then {
                     private _taskId = _taskData select 0;
+                    private _taskType = _taskData select 2;
                     private _taskMarker = _taskData select 5;
+                    private _iconData = _taskData select 6;
                     
                     // Update task marker
                     if (_taskMarker != "" && {markerType _taskMarker != ""}) then {
@@ -326,6 +328,56 @@ HVT_fnc_updatePositions = {
                     
                     // Update BIS task destination
                     [_taskId, _pos] call BIS_fnc_taskSetDestination;
+                    
+                    // Update curator icon position if it exists
+                    if (!isNil "_iconData" && {count _iconData >= 2}) then {
+                        _iconData params ["_module", "_iconID"];
+                        
+                        if (!isNull _module && _iconID != -1) then {
+                            // Remove the old icon
+                            [_module, _iconID] call BIS_fnc_removeCuratorIcon;
+                            
+                            // Get task type to determine icon
+                            private _newIcon = "\A3\ui_f\data\map\markers\military\objective_ca.paa";
+                            switch (_taskType) do {
+                                case "track": { _newIcon = "\A3\ui_f\data\map\markers\military\recon_ca.paa"; };
+                                case "kill": { _newIcon = "\A3\ui_f\data\map\markers\military\destroy_ca.paa"; };
+                                case "capture": { _newIcon = "\A3\ui_f\data\map\markers\military\end_ca.paa"; };
+                                case "attack": { _newIcon = "\A3\ui_f\data\map\markers\military\destroy_ca.paa"; };
+                                default { _newIcon = "\A3\ui_f\data\map\markers\military\objective_ca.paa"; };
+                            };
+                            
+                            // Create a new icon with proper text
+                            private _iconText = "";
+                            private _hvtData = HVT_TARGETS select _hvtIndex;
+                            private _displayName = _hvtData select 1;
+                            
+                            // Get the task name based on task type
+                            private _taskName = _taskType;
+                            {
+                                if (_x select 0 == _taskType) exitWith {
+                                    _taskName = _x select 1;
+                                };
+                            } forEach (_hvtData select 5);
+                            
+                            // Use the same format as in the original creation
+                            _iconText = format ["Op: %1 - %2", _taskName, _displayName];
+                            
+                            // Create the new icon
+                            private _newIconID = [_module, [_newIcon, [0, 0.3, 0.6, 1], _pos, 1, 1, 0, _iconText], false] call BIS_fnc_addCuratorIcon;
+                            
+                            // Update the icon ID in the task data
+                            _iconData set [1, _newIconID];
+                            _taskData set [6, _iconData];
+                            
+                            // Update the task in the active tasks array
+                            {
+                                if (_x select 0 == _taskId) exitWith {
+                                    HVT_activeTasks set [_forEachIndex, _taskData];
+                                };
+                            } forEach HVT_activeTasks;
+                        };
+                    };
                 };
             } forEach HVT_activeTasks;
         } else {
@@ -524,6 +576,7 @@ HVT_fnc_createTask = {
     // Add Zeus curator icon if possible
     private _curatorModule = missionNamespace getVariable ["z1", objNull];
     private _taskIcon = "\A3\ui_f\data\map\markers\military\objective_ca.paa";
+    private _iconID = -1;
     
     // Select icon based on task type
     switch (_taskType) do {
@@ -534,12 +587,23 @@ HVT_fnc_createTask = {
         default { _taskIcon = "\A3\ui_f\data\map\markers\military\objective_ca.paa"; };
     };
     
-    // Add icon
-    private _iconID = -1;
+    // Add icon if curator module exists
     if (!isNull _curatorModule) then {
         private _iconText = format ["Op: %1 - %2", _taskName, _displayName];
         _iconID = [_curatorModule, [_taskIcon, [0, 0.3, 0.6, 1], _pos, 1, 1, 0, _iconText], false] call BIS_fnc_addCuratorIcon;
+        
+        // Log icon creation result
+        if (_iconID != -1) then {
+            ["Created curator icon with ID " + str(_iconID) + " for task " + _taskId] call HVT_fnc_logDebug;
+        } else {
+            ["Failed to create curator icon for task " + _taskId] call HVT_fnc_logDebug;
+        };
+    } else {
+        ["Warning: No curator module found for icon creation"] call HVT_fnc_logDebug;
     };
+    
+    // Store icon data for later removal
+    private _iconData = [_curatorModule, _iconID];
     
     // For capture tasks, set up a trigger
     private _taskTrigger = objNull;
@@ -573,7 +637,7 @@ HVT_fnc_createTask = {
         _assignedUnits, // 3: Assigned units
         _targetUnit,    // 4: Target unit
         _markerName,    // 5: Marker name
-        [_curatorModule, _iconID], // 6: Curator icon
+        _iconData,      // 6: Curator icon
         _taskTrigger    // 7: Task trigger (for capture)
     ];
     
@@ -1191,3 +1255,11 @@ diag_log "=====================================";
 
 // Initialize the system
 [] call HVT_fnc_initSystem;
+
+// Compatibility function for taskSystemArray.sqf
+fnc_getHVTIntelLevel = {
+    params ["_intelPercent"];
+    
+    // Simply call our internal function
+    [_intelPercent] call HVT_fnc_getIntelLevel
+};
