@@ -1,10 +1,8 @@
-// Time Bomb Ability
-// Allows placing timed explosives with customizable timers
-// Based on the aimedShot.sqf implementation
+// Time Bomb Ability - DIRECT APPROACH
+// Using simplified explosive creation method with UI
 
 // Initialize global variables
 if (isNil "TIMEBOMB_active") then { TIMEBOMB_active = false; };
-if (isNil "TIMEBOMB_markerCount") then { TIMEBOMB_markerCount = 0; };
 if (isNil "TIMEBOMB_bombUnit") then { TIMEBOMB_bombUnit = objNull; };
 if (isNil "TIMEBOMB_timeScale") then { TIMEBOMB_timeScale = 0.1; }; // Slow-mo factor
 if (isNil "TIMEBOMB_keyHandler") then { TIMEBOMB_keyHandler = -1; };
@@ -14,12 +12,13 @@ if (isNil "TIMEBOMB_currentPos") then { TIMEBOMB_currentPos = [0,0,0]; };
 if (isNil "TIMEBOMB_selectedPos") then { TIMEBOMB_selectedPos = []; };
 if (isNil "TIMEBOMB_selectedTimer") then { TIMEBOMB_selectedTimer = 60; }; // Default 1 minute
 if (isNil "TIMEBOMB_controls") then { TIMEBOMB_controls = []; };
+if (isNil "TIMEBOMB_markerCount") then { TIMEBOMB_markerCount = 0; };
+if (isNil "TIMEBOMB_targets") then { TIMEBOMB_targets = []; };
 
 // === GAMEPLAY VARIABLES - ADJUST THESE VALUES TO CHANGE BEHAVIOR ===
-TIMEBOMB_cooldownTime = 600;      // Cooldown time in seconds (10 minutes) 
-TIMEBOMB_placementTime = 20;      // Time in seconds to place the bomb
-TIMEBOMB_maxDistance = 100;       // Maximum distance from unit to place bomb
-TIMEBOMB_requiredItem = "fow_e_tnt_twohalfpound_mag"; // Required explosive item
+TIMEBOMB_placementTime = 5;            // Time in seconds to place the bomb
+TIMEBOMB_maxDistance = 100;            // Maximum distance from unit to place bomb
+TIMEBOMB_bombType = "DemoCharge_Remote_Ammo";  // Type of bomb to create
 
 // Function to reset time bomb state
 fnc_resetTimeBombState = {
@@ -53,18 +52,26 @@ fnc_resetTimeBombState = {
     } forEach TIMEBOMB_controls;
     TIMEBOMB_controls = [];
     
-    // Clear markers
-    if (!isNil "TIMEBOMB_selectedMarker") then {
-        if (markerType TIMEBOMB_selectedMarker != "") then {
-            deleteMarker TIMEBOMB_selectedMarker;
-        };
-        TIMEBOMB_selectedMarker = nil;
-    };
     
     systemChat "Time bomb state reset complete";
 };
 
-// Create UI function - simplified
+// Format timer display
+fnc_formatTimerDisplay = {
+    params ["_seconds"];
+    
+    if (_seconds < 60) then {
+        format ["%1 seconds", _seconds]
+    } else {
+        if (_seconds < 3600) then {
+            format ["%1 minutes", floor(_seconds / 60)]
+        } else {
+            format ["%1 hours", floor(_seconds / 3600)]
+        }
+    }
+};
+
+// Create UI function
 fnc_createTimeBombUI = {
     private _display = findDisplay 312;
     
@@ -82,7 +89,24 @@ fnc_createTimeBombUI = {
     _infoText ctrlCommit 0;
     TIMEBOMB_controls pushBack _infoText;
     
-    // Create timer selection buttons - MOVED UP to be just below info text
+    // Create target info display with background
+    private _targetInfoBG = _display ctrlCreate ["RscText", -1];
+    _targetInfoBG ctrlSetPosition [safezoneX + (safezoneW * 0.4), safezoneY + (safezoneH * 0.2), safezoneW * 0.2, safezoneH * 0.15];
+    _targetInfoBG ctrlSetBackgroundColor [0, 0, 0, 0.7];
+    _targetInfoBG ctrlCommit 0;
+    TIMEBOMB_controls pushBack _targetInfoBG;
+    
+    private _targetInfo = _display ctrlCreate ["RscStructuredText", -1];
+    _targetInfo ctrlSetPosition [safezoneX + (safezoneW * 0.4), safezoneY + (safezoneH * 0.2), safezoneW * 0.2, safezoneH * 0.15];
+    _targetInfo ctrlSetBackgroundColor [0, 0, 0, 0];
+    _targetInfo ctrlSetStructuredText parseText "";
+    _targetInfo ctrlCommit 0;
+    TIMEBOMB_controls pushBack _targetInfo;
+    
+    // Store for future updates
+    uiNamespace setVariable ["TIMEBOMB_targetInfo", _targetInfo];
+    
+    // Create timer selection buttons
     private _timerOptions = [
         [30, "30 Seconds"], 
         [60, "1 Minute"], 
@@ -94,7 +118,7 @@ fnc_createTimeBombUI = {
     private _buttonHeight = safezoneH * 0.04;
     private _buttonSpacing = safezoneW * 0.01;
     private _startX = safezoneX + (safezoneW * 0.5) - (_buttonWidth * 2 + _buttonSpacing * 1.5);
-    private _startY = safezoneY + (safezoneH * 0.2); // Moved up directly below info text
+    private _startY = safezoneY + (safezoneH * 0.35); // Positioned below target info
     
     private _timerButtons = [];
     
@@ -135,6 +159,24 @@ fnc_createTimeBombUI = {
                 _x ctrlSetBackgroundColor _btnColor;
             } forEach TIMEBOMB_timerButtons;
             
+            // Update target info if it exists
+            private _targetInfo = uiNamespace getVariable ["TIMEBOMB_targetInfo", controlNull];
+            if (!isNull _targetInfo && count TIMEBOMB_selectedPos > 0) then {
+                private _unit = TIMEBOMB_bombUnit;
+                private _pos = TIMEBOMB_selectedPos;
+                private _distance = _pos distance _unit;
+                
+                private _text = format [
+                    "<t size='1.1'>Target: Bomb Position</t><br/>" +
+                    "<t color='#ADD8E6'>Distance: %1m</t><br/>" +
+                    "<t color='#90EE90'>Timer: %2</t>",
+                    round _distance,
+                    [TIMEBOMB_selectedTimer] call fnc_formatTimerDisplay
+                ];
+                
+                _targetInfo ctrlSetStructuredText parseText _text;
+            };
+            
             systemChat format ["Timer set to %1", [_selectedTime] call fnc_formatTimerDisplay];
         }];
         
@@ -149,7 +191,7 @@ fnc_createTimeBombUI = {
     private _confirmBtn = _display ctrlCreate ["RscButton", -1];
     _confirmBtn ctrlSetPosition [
         safezoneX + (safezoneW * 0.45),
-        safezoneY + (safezoneH * 0.26), // Positioned below timer buttons
+        safezoneY + (safezoneH * 0.41), // Positioned below timer buttons
         safezoneW * 0.1,
         safezoneH * 0.04
     ];
@@ -159,7 +201,7 @@ fnc_createTimeBombUI = {
     _confirmBtn ctrlAddEventHandler ["ButtonClick", {
         systemChat "Place bomb button clicked!";
         if (count TIMEBOMB_selectedPos > 0) then {
-            [] spawn fnc_executeTimeBomb; // Using spawn to ensure it runs properly
+            [] call fnc_executeTimeBomb;
         };
     }];
     _confirmBtn ctrlCommit 0;
@@ -170,116 +212,7 @@ fnc_createTimeBombUI = {
     TIMEBOMB_timerButtons = _timerButtons;
 };
 
-// Format timer display
-fnc_formatTimerDisplay = {
-    params ["_seconds"];
-    
-    if (_seconds < 60) then {
-        format ["%1 seconds", _seconds]
-    } else {
-        if (_seconds < 3600) then {
-            format ["%1 minutes", _seconds / 60]
-        } else {
-            format ["%1 hours", (_seconds / 3600) toFixed 1]
-        }
-    }
-};
-
-// Create a progress bar
-fnc_createProgressBar = {
-    params ["_title", "_duration"];
-    
-    private _display = findDisplay 46;
-    private _progressBarWidth = 0.3;
-    private _progressBarHeight = 0.05;
-    
-    // Background
-    private _background = _display ctrlCreate ["RscText", -1];
-    _background ctrlSetPosition [
-        safezoneX + (safezoneW - _progressBarWidth) / 2,
-        safezoneY + safezoneH * 0.4,
-        _progressBarWidth,
-        _progressBarHeight
-    ];
-    _background ctrlSetBackgroundColor [0, 0, 0, 0.5];
-    _background ctrlCommit 0;
-    
-    // Progress Text
-    private _progressText = _display ctrlCreate ["RscStructuredText", -1];
-    _progressText ctrlSetPosition [
-        safezoneX + (safezoneW - _progressBarWidth) / 2,
-        safezoneY + safezoneH * 0.4,
-        _progressBarWidth,
-        _progressBarHeight / 2
-    ];
-    _progressText ctrlSetStructuredText parseText format ["<t align='center'>%1</t>", _title];
-    _progressText ctrlCommit 0;
-    
-    // Progress Bar
-    private _progressBar = _display ctrlCreate ["RscProgress", -1];
-    _progressBar ctrlSetPosition [
-        safezoneX + (safezoneW - _progressBarWidth) / 2,
-        safezoneY + safezoneH * 0.4 + _progressBarHeight / 2,
-        _progressBarWidth,
-        _progressBarHeight / 2
-    ];
-    _progressBar ctrlSetBackgroundColor [0.2, 0.2, 0.2, 0.8];
-    _progressBar progressSetPosition 0;
-    _progressBar ctrlCommit 0;
-    
-    [_background, _progressText, _progressBar, _duration]
-};
-
-// Update progress bar
-fnc_updateProgressBar = {
-    params ["_controls", "_progress"];
-    
-    _controls params ["_background", "_progressText", "_progressBar", "_duration"];
-    
-    _progressBar progressSetPosition _progress;
-    _progressBar ctrlSetTextColor [1 - _progress, _progress, 0, 1];
-    
-    private _remainingTime = ceil(_duration * (1 - _progress));
-    _progressText ctrlSetStructuredText parseText format ["<t align='center'>Placing Explosive: %1s</t>", _remainingTime];
-};
-
-// Destroy progress bar
-fnc_destroyProgressBar = {
-    params ["_controls"];
-    
-    _controls params ["_background", "_progressText", "_progressBar"];
-    
-    ctrlDelete _background;
-    ctrlDelete _progressText;
-    ctrlDelete _progressBar;
-};
-
-// Create a target marker
-fnc_createTargetMarker = {
-    params ["_pos"];
-    
-    private _markerName = format ["timebomb_target_%1", TIMEBOMB_markerCount];
-    
-    // Delete previous marker if it exists
-    if (markerType _markerName != "") then {
-        deleteMarker _markerName;
-    };
-    
-    private _marker = createMarker [_markerName, _pos];
-    _marker setMarkerType "mil_destroy";
-    _marker setMarkerColor "ColorRed";
-    _marker setMarkerSize [0.7, 0.7];
-    _marker setMarkerText "BOMB";
-    
-    TIMEBOMB_markerCount = TIMEBOMB_markerCount + 1;
-    TIMEBOMB_selectedMarker = _markerName;
-    
-    systemChat format["Marker created: %1 at position %2", _markerName, _pos];
-    
-    _markerName
-};
-
-// Place the time bomb
+// Execute the time bomb placement and explosion - DIRECT APPROACH
 fnc_executeTimeBomb = {
     if (count TIMEBOMB_selectedPos == 0) exitWith {
         systemChat "No position selected for bomb placement";
@@ -287,78 +220,120 @@ fnc_executeTimeBomb = {
     
     private _unit = TIMEBOMB_bombUnit;
     private _targetPos = TIMEBOMB_selectedPos;
-    private _timerDuration = TIMEBOMB_selectedTimer;
+    private _fuseTime = TIMEBOMB_selectedTimer;
     
-    systemChat format["Executing time bomb placement at %1 with timer %2", _targetPos, _timerDuration];
+    systemChat format["Executing time bomb placement at %1 with timer %2s", _targetPos, _fuseTime];
     
-    // First, reset the UI and state
+    // First, reset the UI
     [] call fnc_resetTimeBombState;
     
-    // Direct bomb placement - skipping unit movement for testing
-    // Create physical bomb object
-    private _bomb = createVehicle ["fow_e_tnt_halfpound_mag", _targetPos, [], 0, "CAN_COLLIDE"];
-    _bomb setPosATL [_targetPos select 0, _targetPos select 1, (_targetPos select 2) + 0.05];
+    // Make unit move to position to place bomb
+    _unit doMove _targetPos;
     
-    // Create marker for bomb
-    private _marker = createMarker [format ["timebomb_active_%1", round time], _targetPos];
-    _marker setMarkerType "mil_warning";
-    _marker setMarkerColor "ColorRed";
-    _marker setMarkerText format ["BOMB: %1", [_timerDuration] call fnc_formatTimerDisplay];
-    
-    // Provide feedback
-    systemChat format ["Explosive placed with %1 timer", [_timerDuration] call fnc_formatTimerDisplay];
-    hint parseText format [
-        "<t size='1.2' color='#66ff66'>Explosive Placed</t><br/><br/>Timer set for <t color='#ffcc66'>%1</t><br/><br/>Get clear of the area!",
-        [_timerDuration] call fnc_formatTimerDisplay
-    ];
-    
-    // Start timer for explosion
-    [_bomb, _marker, _timerDuration] spawn {
-        params ["_bomb", "_marker", "_timerDuration"];
+    // Start the bomb placement process
+    [_unit, _targetPos, _fuseTime] spawn {
+        params ["_unit", "_targetPos", "_fuseTime"];
         
-        systemChat format["Starting bomb timer for %1 seconds", _timerDuration];
+        systemChat "Unit is moving to bomb position...";
         
-        // Store start time
-        private _startTime = time;
-        private _endTime = _startTime + _timerDuration;
-        
-        // Update marker periodically
-        while {time < _endTime && !isNull _bomb} do {
-            private _timeLeft = _endTime - time;
-            _marker setMarkerText format ["BOMB: %1", [ceil _timeLeft] call fnc_formatTimerDisplay];
-            
-            // Debug output
-            if (round(_timeLeft) mod 5 == 0) then {
-                systemChat format["Bomb timer: %1 seconds remaining", round(_timeLeft)];
-            };
-            
-            sleep 1;
+        // Wait until unit is close enough
+        waitUntil {
+            sleep 0.5;
+            (_unit distance _targetPos < 3) || !(alive _unit)
         };
         
-        // Time's up - explode if bomb still exists
-        if (!isNull _bomb) then {
-            // Create explosion
-            private _bombPos = getPos _bomb;
+        // Exit if unit died
+        if (!alive _unit) exitWith {
+            systemChat "Unit died before reaching bomb position";
+        };
+        
+        systemChat "Unit has reached bomb position, placing explosive...";
+        
+        // Unit stops and plays animation
+        _unit disableAI "MOVE";
+        _unit playMoveNow "AinvPknlMstpSnonWnonDnon_medic4"; // Placement animation
+        
+        // Wait for animation
+        sleep TIMEBOMB_placementTime;
+        
+        // Re-enable unit's movement
+        _unit enableAI "MOVE";
+        
+        // DIRECT APPROACH: Create the bomb and set timer
+        private _bomb = createVehicle [TIMEBOMB_bombType, _targetPos, [], 0, "CAN_COLLIDE"];
+        _bomb setPosATL [_targetPos select 0, _targetPos select 1, (_targetPos select 2) + 0.05];
+        
+        // Make unit move away from bomb
+        private _moveDir = random 360;
+        private _moveDistance = 50;
+        private _movePos = _unit getPos [_moveDistance, _moveDir];
+        _unit doMove _movePos;
+        
+        // Provide feedback
+        systemChat format ["Explosive placed with %1 timer", [_fuseTime] call fnc_formatTimerDisplay];
+        hint parseText format [
+            "<t size='1.2' color='#66ff66'>Explosive Placed</t><br/><br/>Timer set for <t color='#ffcc66'>%1</t><br/><br/>Get clear of the area!",
+            [_fuseTime] call fnc_formatTimerDisplay
+        ];
+        
+        // Make bomb visible to Zeus
+        private _zeus = getAssignedCuratorLogic player;
+        if (!isNull _zeus) then {
+            _zeus addCuratorEditableObjects [[_bomb], true];
+            systemChat "Added bomb to Zeus";
+        };
+        
+        // SIMPLE TIMER: Wait and then detonate
+        systemChat format["Starting bomb timer for %1 seconds", _fuseTime];
+        
+        [_bomb, _fuseTime] spawn {
+            params ["_bomb", "_fuseTime"];
             
-            systemChat "BOOM! Bomb detonating!";
+            // Show periodic countdown
+            private _lastAnnounce = _fuseTime;
+            for [{private _i = _fuseTime}, {_i > 0}, {_i = _i - 1}] do {
+                // Announce time at certain intervals
+                if (_i == 60 || _i == 30 || _i == 20 || _i == 10 || _i <= 5) then {
+                    systemChat format["Bomb detonates in %1 seconds", _i];
+                };
+                sleep 1;
+            }; 
             
-            // Delete the bomb object first
-            deleteVehicle _bomb;
-            
-            // Create explosion
-            "Bo_GBU12_LGB" createVehicle _bombPos;
-            
-            // Optional secondary explosions for dramatic effect
-            [_bombPos] spawn {
-                params ["_pos"];
-                sleep 0.3;
-                "HelicopterExploBig" createVehicle _pos;
-                sleep 0.5;
-                "HelicopterExploSmall" createVehicle [(_pos select 0) + 3, (_pos select 1) + 3, _pos select 2];
+            // BOOM!
+            if (!isNull _bomb) then {
+                systemChat "BOOM! Bomb detonating!";
+                _bomb setDamage 1; // This triggers the explosion
             };
+			
+			// Delete the helper object
+			private _helper = missionNamespace getVariable ["TIMEBOMB_iconHelper", objNull];
+			if (!isNull _helper) then {
+				deleteVehicle _helper;
+				missionNamespace setVariable ["TIMEBOMB_iconHelper", objNull];
+			};
+        };
+        
+        [_bomb, _fuseTime] spawn {
+            params ["_bomb", "_fuseTime"];
             
-            // Delete marker
-            deleteMarker _marker;
+            // Show periodic countdown
+            private _lastAnnounce = _fuseTime;
+            for [{private _i = _fuseTime}, {_i > 0}, {_i = _i - 1}] do {
+                // Announce time at certain intervals
+                if (_i == 60 || _i == 30 || _i == 20 || _i == 10 || _i <= 5) then {
+                    systemChat format["Bomb detonates in %1 seconds", _i];
+                };
+                sleep 1;
+            }; 
+            
+            // BOOM!
+            if (!isNull _bomb) then {
+                // Remove the Zeus icon before explosion
+                [TIMEBOMB_iconHelper] call BIS_fnc_removeCuratorIcon;
+                
+                systemChat "BOOM! Bomb detonating!";
+                _bomb setDamage 1; // This triggers the explosion
+            };
         };
     };
 };
@@ -408,6 +383,24 @@ TIMEBOMB_drawHandler = addMissionEventHandler ["Draw3D", {
                 0.05,
                 "PuristaMedium"
             ];
+        } else {
+            // Draw cursor position when no target is selected
+            private _color = [1,1,1,0.7];
+            private _cursorPos = AGLToASL TIMEBOMB_currentPos;
+            
+            // Draw cursor crosshair
+            drawIcon3D [
+                "\a3\ui_f\data\IGUI\Cfg\Cursors\tactical_ca.paa",
+                _color,
+                ASLToAGL _cursorPos,
+                1,
+                1,
+                0,
+                "",
+                2,
+                0.05,
+                "PuristaMedium"
+            ];
         };
         
         // Draw cursor position and distance indicator
@@ -421,9 +414,15 @@ TIMEBOMB_drawHandler = addMissionEventHandler ["Draw3D", {
         
         // Draw distance text
         private _distance = (_unitPos distance _targetPos);
+        private _color = if (_distance <= TIMEBOMB_maxDistance) then {
+            [0,1,0,1] // Green if in range
+        } else {
+            [1,0,0,1] // Red if out of range
+        };
+        
         drawIcon3D [
             "",
-            [1,1,1,1],
+            _color,
             ASLToAGL (_unitPos vectorAdd (_targetPos vectorDiff _unitPos vectorMultiply 0.5)),
             0,
             0,
@@ -458,18 +457,59 @@ TIMEBOMB_keyHandler = _display displayAddEventHandler ["KeyDown", {
             
             // Get current mouse position
             private _pos = screenToWorld getMousePosition;
-            TIMEBOMB_selectedPos = _pos;
-            TIMEBOMB_currentPos = _pos;
+            private _unit = TIMEBOMB_bombUnit;
+            private _distance = _pos distance _unit;
             
-            // Create new marker
-            [_pos] call fnc_createTargetMarker;
-            
-            // Show confirm button
-            if (!isNil "TIMEBOMB_confirmBtn") then {
-                TIMEBOMB_confirmBtn ctrlShow true;
-            };
-            
-            true
+            // Check if position is within range
+            if (_distance > TIMEBOMB_maxDistance) then {
+                systemChat format ["Position too far! Maximum range is %1m", TIMEBOMB_maxDistance];
+                hint parseText format [
+                    "<t size='1.2' color='#ff6666'>Position Too Far</t><br/><br/>Maximum range is %1m<br/>Current distance: %2m",
+                    TIMEBOMB_maxDistance, round _distance
+                ];
+                true
+            } else {
+                TIMEBOMB_selectedPos = _pos;
+                TIMEBOMB_currentPos = _pos;
+                
+                // Create a helper object for the Zeus icon (will be deleted later)
+                private _helperLogic = "Logic" createVehicleLocal _pos;
+                _helperLogic setPosATL _pos;
+                
+                // Store the helper object for later access
+                missionNamespace setVariable ["TIMEBOMB_iconHelper", _helperLogic];
+                
+                // Add icon to curator
+                private _zeus = getAssignedCuratorLogic player;
+                if (!isNull _zeus) then {
+                    _zeus addCuratorEditableObjects [[_helperLogic], true];
+                    systemChat "Added helper object to Zeus";
+                };
+                
+                systemChat format["Position marked at %1, distance %2m", _pos, round _distance];
+                
+                // Update target info if it exists
+                private _targetInfo = uiNamespace getVariable ["TIMEBOMB_targetInfo", controlNull];
+                if (!isNull _targetInfo) then {
+                    private _text = format [
+                        "<t size='1.1'>Target: Bomb Position</t><br/>" +
+                        "<t color='#ADD8E6'>Distance: %1m</t><br/>" +
+                        "<t color='#90EE90'>Timer: %2</t>",
+                        round _distance,
+                        [TIMEBOMB_selectedTimer] call fnc_formatTimerDisplay
+                    ];
+                    
+                    _targetInfo ctrlSetStructuredText parseText _text;
+                };
+                
+                // Show confirm button
+                if (!isNil "TIMEBOMB_confirmBtn") then {
+                    TIMEBOMB_confirmBtn ctrlShow true;
+                };
+                
+                systemChat format["Position marked at %1, distance %2m", _pos, round _distance];
+                true
+            }
         };
         
         // Number keys 1-4 for timer selection
@@ -493,12 +533,37 @@ TIMEBOMB_keyHandler = _display displayAddEventHandler ["KeyDown", {
                     } forEach TIMEBOMB_timerButtons;
                 };
                 
+                // Update target info if it exists
+                private _targetInfo = uiNamespace getVariable ["TIMEBOMB_targetInfo", controlNull];
+                if (!isNull _targetInfo && count TIMEBOMB_selectedPos > 0) then {
+                    private _unit = TIMEBOMB_bombUnit;
+                    private _pos = TIMEBOMB_selectedPos;
+                    private _distance = _pos distance _unit;
+                    
+                    private _text = format [
+                        "<t size='1.1'>Target: Bomb Position</t><br/>" +
+                        "<t color='#ADD8E6'>Distance: %1m</t><br/>" +
+                        "<t color='#90EE90'>Timer: %2</t>",
+                        round _distance,
+                        [TIMEBOMB_selectedTimer] call fnc_formatTimerDisplay
+                    ];
+                    
+                    _targetInfo ctrlSetStructuredText parseText _text;
+                };
+                
                 systemChat format ["Timer set to %1", [TIMEBOMB_selectedTimer] call fnc_formatTimerDisplay];
+                true
             };
-            true
         };
         
-        // Remove Enter key handler - only use button now
+        // Enter key - Confirm (alternative to button)
+        if (_key == 28) then {
+            if (count TIMEBOMB_selectedPos > 0) then {
+                systemChat "Enter pressed - Confirming bomb placement";
+                [] call fnc_executeTimeBomb;
+                true
+            };
+        };
         
         // Backspace key - Cancel
         if (_key == 14) then {
