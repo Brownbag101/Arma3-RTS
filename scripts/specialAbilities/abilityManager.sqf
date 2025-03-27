@@ -1,4 +1,4 @@
-// scripts/specialAbilities/abilityManager.sqf
+// scripts/specialAbilities/abilityManager.sqf - UPDATED WITH NEW ABILITIES
 
 // Initialize array to store ability icons
 RTSUI_abilityIcons = [];
@@ -14,10 +14,24 @@ RTSUI_abilityDatabase = [
     ],
     [
         "aimedshot",
-    "\A3\ui_f\data\IGUI\Cfg\SimpleTasks\types\target_ca.paa",
-    "Precision Shot",
-    "Enter precision targeting mode for a calculated shot",
-    "scripts\specialAbilities\abilities\aimedShot.sqf"
+        "\A3\ui_f\data\IGUI\Cfg\SimpleTasks\types\target_ca.paa",
+        "Precision Shot",
+        "Enter precision targeting mode for a calculated shot",
+        "scripts\specialAbilities\abilities\aimedShot.sqf"
+    ],
+    [
+        "capture",
+        "\A3\ui_f\data\IGUI\Cfg\SimpleTasks\types\meet_ca.paa",
+        "Capture Enemy",
+        "Force surrender of outnumbered enemy units",
+        "scripts\specialAbilities\abilities\capture.sqf"
+    ],
+    [
+        "timebomb",
+        "\A3\ui_f\data\IGUI\Cfg\SimpleTasks\types\destroy_ca.paa",
+        "Plant Time Bomb",
+        "Place timed explosive device (requires TNT)",
+        "scripts\specialAbilities\abilities\timeBomb.sqf"
     ]
 ];
 
@@ -101,7 +115,6 @@ fnc_createAbilityIcons = {
     
     systemChat format ["Creating icons for abilities: %1", _abilities];
     
-    // Rest of the function remains the same...
     // Layout configuration
     private _iconSize = 0.04 * safezoneH;
     private _spacing = 0.005 * safezoneW;
@@ -151,6 +164,15 @@ fnc_createAbilityIcons = {
                 if (!isNull RTSUI_selectedUnit) then {
                     systemChat format ["Starting %1 ability execution...", _name];
                     
+                    // Check for active abilities that need to be cancelled first
+                    if ((!isNil "AIMEDSHOT_active" && {AIMEDSHOT_active}) || 
+                        (!isNil "TIMEBOMB_active" && {TIMEBOMB_active})) then {
+                        
+                        // Simulate backspace to cancel active ability
+                        call fnc_simulateBackspaceKey;
+                        sleep 0.5; // Small delay to ensure cancellation completes
+                    };
+                    
                     // Execute the ability script
                     private _result = [RTSUI_selectedUnit] execVM _script;
                     
@@ -171,4 +193,41 @@ fnc_createAbilityIcons = {
             RTSUI_abilityIcons pushBack _button;
         };
     } forEach _abilities;
+};
+
+// Helper function to get ability info by ID
+fnc_getAbilityInfo = {
+    params ["_abilityId"];
+    
+    private _abilityInfo = [];
+    {
+        if (_x select 0 == _abilityId) exitWith {
+            _abilityInfo = _x;
+        };
+    } forEach RTSUI_abilityDatabase;
+    
+    _abilityInfo
+};
+
+// Check if unit has a specific ability
+fnc_hasAbility = {
+    params ["_unit", "_abilityId"];
+    
+    private _abilities = [_unit] call fnc_getUnitAbilities;
+    _abilityId in _abilities
+};
+
+// Helper function to check ability cooldown
+fnc_getAbilityCooldown = {
+    params ["_unit", "_abilityId"];
+    
+    private _cooldownVar = format ["ABILITY_%1_cooldown", _abilityId];
+    private _cooldownTime = _unit getVariable [_cooldownVar, 0];
+    private _remainingTime = _cooldownTime - time;
+    
+    if (_remainingTime <= 0) then {
+        [0, "Ready"]
+    } else {
+        [_remainingTime, format ["%1m %2s", floor(_remainingTime / 60), floor(_remainingTime % 60)]]
+    }
 };
