@@ -1,4 +1,4 @@
-// Virtual Hangar System - User Interface
+// Virtual Hangar System - User Interface - COMPLETE REWRITE
 // Handles creation and management of the Virtual Hangar UI
 
 // Initialize variables
@@ -65,12 +65,13 @@ HANGAR_fnc_openUI = {
     
     diag_log format ["Stored original camera position: %1, dir: %2", HANGAR_originalCamPos, HANGAR_originalCamDir];
     
-    // Move camera to view the hangar area
-    curatorCamera setPosASL HANGAR_cameraPosition;
-    private _dir = HANGAR_cameraPosition vectorFromTo HANGAR_cameraTarget;
-    curatorCamera setVectorDir _dir;
+    // Make sure any UI panels are closed first
+    call HANGAR_fnc_forceCloseAllUI;
     
-    diag_log format ["Set camera to position: %1, looking at: %2", HANGAR_cameraPosition, HANGAR_cameraTarget];
+    // Move camera to view the hangar area
+    [] call fnc_focusCameraOnAirfield;
+    
+   
     
     // Clear any viewed aircraft
     call HANGAR_fnc_clearViewedAircraft;
@@ -93,8 +94,10 @@ HANGAR_fnc_openUI = {
 
 // Function to close the UI
 HANGAR_fnc_closeUI = {
-    // Clean up viewed aircraft
-    call HANGAR_fnc_clearViewedAircraft;
+    // Make sure all UI panels are closed first
+    call HANGAR_fnc_forceCloseAllUI;
+    
+    
     
     // Restore original camera position
     if (!isNil "HANGAR_originalCamPos") then {
@@ -620,17 +623,17 @@ HANGAR_fnc_initializeActionButtons = {
     diag_log "Action buttons initialized";
 };
 
-// Function to open pilot selection UI
+// Function to open pilot selection UI - COMPLETELY REWRITTEN
 HANGAR_fnc_openPilotSelectionUI = {
     if (isNull HANGAR_display) exitWith {
         systemChat "Display not found";
     };
     
+    // Ensure any previous pilots UIs are closed first
+    call HANGAR_fnc_closePilotSelectionUI;
+    
     // Log aircraft selection for debugging
     diag_log format ["Opening pilot selection UI. Selected aircraft index: %1", HANGAR_selectedAircraftIndex];
-    
-    // Clear any existing pilot UI elements first
-    call HANGAR_fnc_closePilotSelectionUI;
     
     // Ensure we have a valid aircraft selected
     if (HANGAR_selectedAircraftIndex < 0 || HANGAR_selectedAircraftIndex >= count HANGAR_storedAircraft) exitWith {
@@ -645,8 +648,8 @@ HANGAR_fnc_openPilotSelectionUI = {
             private _rankIndex = floor(random 3);
             private _name = format ["Pilot %1 %2", ["John", "William", "James", "Edward", "Henry", "George", "Charles", "Thomas"] select (_i-1),
                                    ["Smith", "Jones", "Brown", "Wilson", "Taylor", "Davies", "Evans", "Thomas"] select (_i-1)];
-            private _specializationIndex = floor(random 4);
-            private _specialization = ["Fighters", "Bombers", "Transport", "Recon"] select _specializationIndex;
+            private _specializationList = ["Fighters", "Bombers", "Transport", "Recon"];
+            private _specialization = _specializationList select (floor(random (count _specializationList)));
             
             private _pilotData = [
                 _name,              // Name
@@ -662,7 +665,28 @@ HANGAR_fnc_openPilotSelectionUI = {
         };
         
         systemChat "Created sample pilots";
+        diag_log "Created sample pilots in roster";
     };
+    
+    // Get aircraft type to check specialization
+    private _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
+    private _aircraftType = _record select 0;
+    
+    // Find aircraft category
+    private _aircraftCategory = "";
+    {
+        _x params ["_category", "_aircraftList"];
+        
+        {
+            _x params ["_className"];
+            if (_className == _aircraftType) exitWith {
+                _aircraftCategory = _category;
+                diag_log format ["Found category %1 for aircraft type %2", _category, _aircraftType];
+            };
+        } forEach _aircraftList;
+        
+        if (_aircraftCategory != "") exitWith {};
+    } forEach HANGAR_aircraftTypes;
     
     // Create pilot selection overlay fresh each time
     private _overlay = HANGAR_display ctrlCreate ["RscText", 9820];
@@ -677,7 +701,7 @@ HANGAR_fnc_openPilotSelectionUI = {
     HANGAR_uiControls pushBack _overlay;
     
     // Title
-    private _title = HANGAR_display ctrlCreate ["RscText", -1, _overlay];
+    private _title = HANGAR_display ctrlCreate ["RscText", 9840, _overlay];
     _title ctrlSetPosition [
         0,
         0,
@@ -704,21 +728,35 @@ HANGAR_fnc_openPilotSelectionUI = {
     // Add pilots to list
     private _availablePilots = [];
     
-    // Manually check for available pilots
+    // Collect available pilots that match the aircraft specialization
     {
         private _pilotData = _x;
-        private _aircraft = _pilotData select 5;
+        _pilotData params ["_name", "_rankIndex", "_missions", "_kills", "_specialization", "_aircraft"];
         
-        if (isNull _aircraft) then {
+        // Check if pilot is not assigned and specialization matches (or is blank)
+        if (isNull _aircraft && (_specialization == _aircraftCategory || _aircraftCategory == "")) then {
             _availablePilots pushBack _forEachIndex;
+            diag_log format ["Found available pilot: %1 with specialization %2", _name, _specialization];
         };
     } forEach HANGAR_pilotRoster;
     
-    diag_log format ["Found %1 available pilots", count _availablePilots];
+    diag_log format ["Found %1 available pilots for aircraft category %2", count _availablePilots, _aircraftCategory];
     
     if (count _availablePilots == 0) then {
-        _listbox lbAdd "No available pilots";
+        _listbox lbAdd "No available pilots with matching specialization";
         _listbox lbSetData [0, "-1"];
+        
+        // Add a helpful message if no pilots
+        private _infoText = HANGAR_display ctrlCreate ["RscText", 9842, _overlay];
+        _infoText ctrlSetPosition [
+            safezoneW * 0.02,
+            safezoneH * 0.52,
+            safezoneW * 0.36,
+            safezoneH * 0.05
+        ];
+        _infoText ctrlSetText format ["Need pilots specialized in %1", _aircraftCategory];
+        _infoText ctrlSetTextColor [1, 0.7, 0.7, 1];
+        _infoText ctrlCommit 0;
     } else {
         {
             private _pilotIndex = _x;
@@ -811,7 +849,7 @@ HANGAR_fnc_openPilotSelectionUI = {
     _cancelBtn ctrlSetBackgroundColor [0.4, 0.2, 0.2, 0.8];
     _cancelBtn ctrlCommit 0;
     
-    // Cancel button action - simplified
+    // Cancel button action
     _cancelBtn ctrlAddEventHandler ["ButtonClick", {
         call HANGAR_fnc_closePilotSelectionUI;
     }];
@@ -827,7 +865,7 @@ HANGAR_fnc_openPilotSelectionUI = {
     diag_log "Opened pilot selection UI";
 };
 
-// Function to close pilot selection UI - completely rewritten
+// Function to close pilot selection UI - COMPLETELY REWRITTEN
 HANGAR_fnc_closePilotSelectionUI = {
     // Call the global force close function
     call HANGAR_fnc_forceCloseAllUI;
@@ -847,8 +885,11 @@ HANGAR_fnc_closePilotSelectionUI = {
     diag_log "Closed pilot selection UI - flags reset";
 };
 
-// Function to open deploy position selection UI
+// Function to open deploy position selection UI - COMPLETELY REWRITTEN
 HANGAR_fnc_openDeployPositionUI = {
+    // Ensure any previous deploy UIs are closed first
+    call HANGAR_fnc_closeDeployPositionUI;
+    
     // Create overlay from scratch
     private _overlay = HANGAR_display ctrlCreate ["RscText", 9830];
     _overlay ctrlSetPosition [
@@ -862,7 +903,7 @@ HANGAR_fnc_openDeployPositionUI = {
     HANGAR_uiControls pushBack _overlay;
     
     // Title
-    private _title = HANGAR_display ctrlCreate ["RscText", -1, _overlay];
+    private _title = HANGAR_display ctrlCreate ["RscText", 9841, _overlay];
     _title ctrlSetPosition [
         0,
         0,
@@ -985,7 +1026,7 @@ HANGAR_fnc_openDeployPositionUI = {
     diag_log "Opened deploy position UI";
 };
 
-// Function to close deploy position UI - completely rewritten
+// Function to close deploy position UI - COMPLETELY REWRITTEN
 HANGAR_fnc_closeDeployPositionUI = {
     // Call the global force close function
     call HANGAR_fnc_forceCloseAllUI;
@@ -1002,8 +1043,6 @@ HANGAR_fnc_closeDeployPositionUI = {
     
     diag_log "Closed deploy position UI - flags reset";
 };
-
-
 
 // Register the Virtual Hangar function for the menu system
 fnc_openVirtualHangarUI = {

@@ -1,4 +1,4 @@
-// Virtual Hangar System - Initialization
+// Virtual Hangar System - Initialization - COMPLETE REWRITE
 // Initializes the Virtual Hangar system for aircraft management
 
 // === AIRCRAFT CONFIGURATION ===
@@ -8,7 +8,8 @@ HANGAR_aircraftTypes = [
         ["LIB_C47_RAF", "C-47 Dakota", 1] // [classname, display name, required crew]
     ]],
     ["Fighters", [
-        ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1]
+        ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
+        ["sab_fl_spitfire_mk9", "Spitfire Mk.IX", 1]
     ]],
     ["Recon", [
         ["sab_fl_dh98", "Mosquito", 2]
@@ -22,6 +23,21 @@ HANGAR_aircraftTypes = [
 // Use markers for spawning positions
 HANGAR_planeSpawnMarker = "plane_spawn";  // Marker for plane viewing position
 HANGAR_pilotSpawnMarker = "pilot_spawn";  // Marker for pilot spawn position
+
+// Debug marker existence
+if (markerType HANGAR_planeSpawnMarker == "") then {
+    diag_log "WARNING: plane_spawn marker not found!";
+    systemChat "WARNING: plane_spawn marker not found - using default position";
+} else {
+    diag_log format ["plane_spawn marker found at position: %1", getMarkerPos HANGAR_planeSpawnMarker];
+};
+
+if (markerType HANGAR_pilotSpawnMarker == "") then {
+    diag_log "WARNING: pilot_spawn marker not found!";
+    systemChat "WARNING: pilot_spawn marker not found - using default position";
+} else {
+    diag_log format ["pilot_spawn marker found at position: %1", getMarkerPos HANGAR_pilotSpawnMarker];
+};
 
 // Calculate position and direction from markers
 HANGAR_viewPosition = if (markerType HANGAR_planeSpawnMarker != "") then {
@@ -37,12 +53,18 @@ HANGAR_viewDirection = if (markerType HANGAR_planeSpawnMarker != "") then {
     180  // Fallback direction
 };
 
-// Calculate pilot spawn position from marker
+// Force the pilot spawn position to be a safe location if it exists
 HANGAR_pilotSpawnPosition = if (markerType HANGAR_pilotSpawnMarker != "") then {
-    getMarkerPos HANGAR_pilotSpawnMarker
+    private _pos = getMarkerPos HANGAR_pilotSpawnMarker;
+    // Make sure the Z coordinate is correct
+    _pos set [2, 0];
+    _pos
 } else {
-    systemChat "WARNING: pilot_spawn marker not found!";
-    HANGAR_viewPosition vectorAdd [10, 10, 0]  // Fallback position
+    // Fallback - use a position near the plane spawn that's definitely safe
+    private _fallbackPos = HANGAR_viewPosition vectorAdd [10, 10, 0];
+    _fallbackPos set [2, 0];
+    systemChat "WARNING: pilot_spawn marker not found - using position near aircraft";
+    _fallbackPos
 };
 
 // Calculate camera position to be above and behind the plane spawn
@@ -72,23 +94,6 @@ HANGAR_deployPositions = [
     "hangar_deploy_5"
 ];
 
-// Add this at the beginning of your hangarInit.sqf file after the marker declarations
-
-// Debug marker existence
-if (markerType HANGAR_planeSpawnMarker == "") then {
-    diag_log "WARNING: plane_spawn marker not found!";
-    systemChat "WARNING: plane_spawn marker not found - using default position";
-} else {
-    diag_log format ["plane_spawn marker found at position: %1", getMarkerPos HANGAR_planeSpawnMarker];
-};
-
-if (markerType HANGAR_pilotSpawnMarker == "") then {
-    diag_log "WARNING: pilot_spawn marker not found!";
-    systemChat "WARNING: pilot_spawn marker not found - using default position";
-} else {
-    diag_log format ["pilot_spawn marker found at position: %1", getMarkerPos HANGAR_pilotSpawnMarker];
-};
-
 // Check deploy markers too
 {
     if (markerType _x == "") then {
@@ -99,77 +104,9 @@ if (markerType HANGAR_pilotSpawnMarker == "") then {
     };
 } forEach HANGAR_deployPositions;
 
-// Force the pilot spawn position to be a safe location if it exists
-HANGAR_pilotSpawnPosition = if (markerType HANGAR_pilotSpawnMarker != "") then {
-    private _pos = getMarkerPos HANGAR_pilotSpawnMarker;
-    // Make sure the Z coordinate is correct
-    _pos set [2, 0];
-    _pos
-} else {
-    // Fallback - use a position near the plane spawn that's definitely safe
-    private _fallbackPos = HANGAR_viewPosition vectorAdd [10, 10, 0];
-    _fallbackPos set [2, 0];
-    systemChat "WARNING: pilot_spawn marker not found - using position near aircraft";
-    _fallbackPos
-};
-
 // Debug the position calculations
 diag_log format ["Final pilot spawn position: %1", HANGAR_pilotSpawnPosition];
 diag_log format ["Final plane view position: %1", HANGAR_viewPosition];
-
-// ADD THIS FUNCTION to pilotSystem.sqf to debug pilot creation
-// Add this near the beginning of the file
-
-// Debug function to test pilot creation
-HANGAR_fnc_testCreatePilot = {
-    diag_log "TESTING PILOT CREATION...";
-    
-    // Create a simple test pilot data entry
-    if (count HANGAR_pilotRoster == 0) then {
-        HANGAR_pilotRoster pushBack [
-            "Test Pilot",     // Name
-            0,                // Rank
-            0,                // Missions
-            0,                // Kills
-            "Fighters",       // Specialization
-            objNull           // Aircraft assignment
-        ];
-        diag_log "Added test pilot to roster";
-    };
-    
-    // Log pilot spawn position
-    diag_log format ["Pilot spawn position: %1", HANGAR_pilotSpawnPosition];
-    
-    // Try to create a unit at the pilot spawn location
-    private _side = side player;
-    private _group = createGroup [_side, true];
-    private _unit = _group createUnit ["LIB_UK_Pilot", HANGAR_pilotSpawnPosition, [], 0, "NONE"];
-    
-    if (!isNull _unit) then {
-        _unit setName "TEST PILOT";
-        systemChat "Test pilot created successfully!";
-        diag_log format ["Test pilot created at position: %1", getPos _unit];
-        
-        // Delete after 10 seconds
-        [_unit] spawn {
-            params ["_unit"];
-            sleep 10;
-            if (!isNull _unit) then {
-                deleteVehicle _unit;
-                systemChat "Test pilot removed";
-            };
-        };
-    } else {
-        systemChat "FAILED to create test pilot!";
-        diag_log "Failed to create test pilot unit";
-    };
-};
-
-// Run the test once when the system initializes
-[] spawn {
-    sleep 5; // Wait for everything to initialize
-    call HANGAR_fnc_testCreatePilot;
-};
 
 // === GLOBAL VARIABLES ===
 if (isNil "HANGAR_storedAircraft") then { HANGAR_storedAircraft = []; };
@@ -203,6 +140,109 @@ diag_log format ["Virtual Hangar initialized with: Plane position: %1, Pilot pos
 [] execVM "scripts\virtualHangar\pilotSystem.sqf";
 [] execVM "scripts\virtualHangar\hangarUI.sqf";
 
+// Debug function to test pilot creation - FIXED VERSION
+HANGAR_fnc_testCreatePilot = {
+    diag_log "TESTING PILOT CREATION - FIXED VERSION...";
+    
+    // Create a simple test pilot data entry
+    if (count HANGAR_pilotRoster == 0) then {
+        HANGAR_pilotRoster pushBack [
+            "Test Pilot",     // Name
+            0,                // Rank
+            0,                // Missions
+            0,                // Kills
+            "Fighters",       // Specialization
+            objNull           // Aircraft assignment
+        ];
+        diag_log "Added test pilot to roster";
+    };
+    
+    // Log pilot spawn position
+    diag_log format ["Pilot spawn position: %1", HANGAR_pilotSpawnPosition];
+    
+    // Verify class existence first
+    if (!isClass (configFile >> "CfgVehicles" >> "sab_fl_pilot_green")) then {
+        systemChat "WARNING: sab_fl_pilot_green class not found in game configuration!";
+        diag_log "CRITICAL: sab_fl_pilot_green class does not exist - check addon dependencies";
+        
+        // Try with a fallback class that definitely exists
+        systemChat "Trying with fallback class 'B_Pilot_F'";
+        
+        private _side = side player;
+        private _group = createGroup [_side, true];
+        private _unit = _group createUnit ["B_Pilot_F", HANGAR_pilotSpawnPosition, [], 0, "NONE"];
+        
+        if (!isNull _unit) then {
+            _unit setName "TEST PILOT (FALLBACK)";
+            systemChat "Test pilot created with fallback class!";
+            diag_log format ["Test pilot created with fallback class at position: %1", getPos _unit];
+            
+            // Delete after 10 seconds
+            [_unit] spawn {
+                params ["_unit"];
+                sleep 10;
+                if (!isNull _unit) then {
+                    deleteVehicle _unit;
+                    systemChat "Test pilot removed";
+                };
+            };
+        } else {
+            systemChat "FAILED to create even fallback pilot!";
+            diag_log "CRITICAL FAILURE: Cannot create ANY pilot units - game environment issue";
+        };
+    } else {
+        // Class exists, so try to create it
+        private _side = side player;
+        private _group = createGroup [_side, true];
+        private _unit = objNull;
+        
+        // Try to create unit with more protection against deletion
+        if (isServer) then {
+            _unit = _group createUnit ["sab_fl_pilot_green", HANGAR_pilotSpawnPosition, [], 0, "CAN_COLLIDE"];
+        } else {
+            [_group, "sab_fl_pilot_green", HANGAR_pilotSpawnPosition, [], 0, "CAN_COLLIDE"] remoteExec ["bis_fnc_spawnUnit", 2];
+            sleep 1;
+            
+            // Find the newly created unit
+            {
+                if (_x getVariable ["HANGAR_isTestPilot", false]) exitWith {
+                    _unit = _x;
+                };
+            } forEach (nearestObjects [HANGAR_pilotSpawnPosition, ["Man"], 50]);
+        };
+        
+        if (!isNull _unit) then {
+            _unit setName "TEST PILOT";
+            _unit setVariable ["HANGAR_isTestPilot", true, true];
+            _unit allowDamage false;
+            _unit setCaptive true;
+            
+            // Add protection against cleanup/deletion
+            _unit setVariable ["BIS_enableRandomization", false, true];
+            _unit setVariable ["acex_headless_blacklist", true, true];
+            
+            systemChat "Test pilot created successfully!";
+            diag_log format ["Test pilot created at position: %1", getPos _unit];
+            
+            // Delete after 10 seconds
+            [_unit] spawn {
+                params ["_unit"];
+                sleep 10;
+                if (!isNull _unit) then {
+                    deleteVehicle _unit;
+                    systemChat "Test pilot removed";
+                } else {
+                    systemChat "Test pilot was already deleted by something!";
+                    diag_log "WARNING: Test pilot was deleted before cleanup time!";
+                };
+            };
+        } else {
+            systemChat "FAILED to create test pilot!";
+            diag_log "Failed to create test pilot unit - but class exists!";
+        };
+    };
+};
+
 // Add to menu system if not already integrated
 if (!isNil "RTS_menuButtons") then {
     // Check if virtual hangar button already exists
@@ -224,4 +264,6 @@ if (!isNil "RTS_menuButtons") then {
     };
 };
 
-systemChat "Virtual Hangar system initialized";
+// Test function available but not automatically called
+systemChat "Virtual Hangar system initialized - test function available";
+diag_log "Virtual Hangar initialized - call HANGAR_fnc_testCreatePilot manually if testing is needed";

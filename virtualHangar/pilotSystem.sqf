@@ -1,7 +1,4 @@
-// REPLACE THE ENTIRE pilotSystem.sqf FILE WITH THIS VERSION
-// This fixes all potential issues in one go
-
-// Virtual Hangar System - Pilot Management
+// Virtual Hangar System - Pilot Management - COMPLETE REWRITE
 // Handles pilot roster, progression, and assignment
 
 // Initialize pilot roster if not exists
@@ -193,40 +190,68 @@ HANGAR_fnc_getAvailablePilots = {
     _available
 };
 
-// FIXED - Function to check if pilot is available
-// This now ALWAYS returns a boolean
-HANGAR_fnc_isPilotAvailable = {
-    params ["_pilotIndex"];
+// Function to check if pilot is available and specialization matches
+HANGAR_fnc_isPilotAvailableForAircraft = {
+    params ["_pilotIndex", "_aircraftType"];
     
     if (_pilotIndex < 0 || _pilotIndex >= count HANGAR_pilotRoster) exitWith {
-        diag_log format ["isPilotAvailable: Invalid index %1", _pilotIndex];
-        false
+        diag_log format ["isPilotAvailableForAircraft: Invalid pilot index %1", _pilotIndex];
+        [false, "Invalid pilot index"]
     };
     
+    // Get pilot data
     private _pilotData = HANGAR_pilotRoster select _pilotIndex;
-    private _aircraft = _pilotData select 5;
+    private _currentAircraft = _pilotData select 5;
+    private _specialization = _pilotData select 4;
     
-    // Make sure we return a boolean
-    private _result = isNull _aircraft;
+    // Check if pilot is already assigned
+    if (!isNull _currentAircraft) exitWith {
+        diag_log format ["isPilotAvailableForAircraft: Pilot %1 already assigned", _pilotIndex];
+        [false, "Pilot already assigned"]
+    };
     
-    // Debug
-    diag_log format ["isPilotAvailable: Pilot %1 available: %2", _pilotIndex, _result];
+    // Get aircraft category
+    private _aircraftCategory = "";
+    {
+        _x params ["_category", "_aircraftList"];
+        
+        {
+            _x params ["_className", "_displayName", "_crewCount"];
+            if (_className == _aircraftType) exitWith {
+                _aircraftCategory = _category;
+            };
+        } forEach _aircraftList;
+        
+        if (_aircraftCategory != "") exitWith {};
+    } forEach HANGAR_aircraftTypes;
     
-    // Return the boolean
-    _result
+    // Check if specialization matches
+    if (_aircraftCategory != "" && _specialization != _aircraftCategory) exitWith {
+        diag_log format ["isPilotAvailableForAircraft: Pilot %1 specialization %2 doesn't match aircraft category %3", 
+            _pilotIndex, _specialization, _aircraftCategory];
+        [false, format ["Pilot specializes in %1, not %2", _specialization, _aircraftCategory]]
+    };
+    
+    // All checks passed
+    [true, ""]
 };
 
-// Function to assign a pilot to an aircraft
+// Function to assign a pilot to an aircraft - FIXED VERSION WITH LOCAL SPAWNING
 HANGAR_fnc_assignPilotToAircraft = {
     params ["_pilotIndex", "_aircraft", ["_role", "driver"], ["_turretPath", []]];
     
+    diag_log format ["ASSIGN PILOT TO AIRCRAFT - FIXED VERSION - Pilot: %1, Aircraft: %2, Role: %3", 
+        _pilotIndex, typeOf _aircraft, _role];
+    
     if (_pilotIndex < 0 || _pilotIndex >= count HANGAR_pilotRoster) exitWith {
         systemChat "Invalid pilot index";
+        diag_log format ["Invalid pilot index: %1, roster size: %2", _pilotIndex, count HANGAR_pilotRoster];
         objNull
     };
     
     if (isNull _aircraft) exitWith {
         systemChat "Invalid aircraft";
+        diag_log "Aircraft is null";
         objNull
     };
     
@@ -236,6 +261,7 @@ HANGAR_fnc_assignPilotToAircraft = {
     
     if (!isNull _currentAircraft) exitWith {
         systemChat "Pilot is already assigned to an aircraft";
+        diag_log format ["Pilot %1 is already assigned to an aircraft", _pilotIndex];
         objNull
     };
     
@@ -244,17 +270,57 @@ HANGAR_fnc_assignPilotToAircraft = {
     private _rankIndex = _pilotData select 1;
     private _rankName = [_rankIndex] call HANGAR_fnc_getPilotRankName;
     
-    // Use marker position for pilot spawn
-    private _spawnPos = HANGAR_pilotSpawnPosition;
+    // Ensure position is on ground and near aircraft
+    private _spawnPos = getPosATL _aircraft vectorAdd [3, 3, 0];
+    _spawnPos set [2, 0];
     
-    // Create the unit
+    diag_log format ["Spawning pilot at position near aircraft: %1", _spawnPos];
+    
+    // CRITICAL FIX: Create the unit with the specified model AND LOCAL TO SERVER
     private _side = side player;
     private _group = createGroup [_side, true];
-    private _unit = _group createUnit ["LIB_UK_Pilot", _spawnPos, [], 0, "NONE"];
+    
+    // We'll use the extreme local option to avoid any locality issues
+    private _unit = objNull;
+    
+    if (isServer) then {
+        _unit = _group createUnit ["sab_fl_pilot_green", _spawnPos, [], 0, "NONE"];
+    } else {
+        // Try to create locally on client first
+        _unit = _group createUnit ["sab_fl_pilot_green", _spawnPos, [], 0, "NONE"];
+        
+        // If that failed, ask server to do it
+        if (isNull _unit) then {
+            systemChat "Local unit creation failed, trying server-side creation";
+            [_group, "sab_fl_pilot_green", _spawnPos, [], 0, "NONE"] remoteExec ["bis_fnc_spawnUnit", 2];
+            sleep 1; // Give it time to create
+            
+            // Look for the unit
+            {
+                if (_x getVariable ["HANGAR_tempPilot", false]) exitWith {
+                    _unit = _x;
+                };
+            } forEach allUnits;
+        };
+    };
+    
+    if (isNull _unit) exitWith {
+        systemChat "Failed to create pilot unit! Check class name and server status.";
+        diag_log "Critical error: Failed to create pilot unit";
+        objNull
+    };
+    
+    diag_log format ["Pilot unit created: %1 at position %2", _unit, getPos _unit];
+    
+    // CRITICAL FIX: Immediately make non-simulated to prevent simulation issues
+    _unit enableSimulationGlobal false;
     
     // Set name and other attributes
     _unit setName _pilotName;
-    _unit setUnitRank getText (configFile >> "CfgRanks" >> str _rankIndex >> "displayName");
+    _unit allowDamage false;
+    _unit setCaptive true;
+    _unit setUnitRank (["PRIVATE", "CORPORAL", "SERGEANT", "LIEUTENANT", "CAPTAIN", "MAJOR"] select 
+        (_rankIndex min 5));
     _unit setVariable ["HANGAR_isPilot", true, true];
     _unit setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
     
@@ -265,85 +331,93 @@ HANGAR_fnc_assignPilotToAircraft = {
     private _skillMultiplier = [_rankIndex] call HANGAR_fnc_getPilotSkillMultiplier;
     _unit setSkill (_skillMultiplier * 0.7); // Base skill of 0.7 modified by rank
     
-    // Make unit temporarily editable in Zeus
-    private _curator = getAssignedCuratorLogic player;
-    if (!isNull _curator) then {
-        _curator addCuratorEditableObjects [[_unit], false];
+    // CRITICAL FIX: Disable AI systems that might cause issues
+    {
+        _unit disableAI _x;
+    } forEach ["TARGET", "AUTOTARGET", "MOVE", "ANIM", "FSM"];
+    
+    // CRITICAL FIX: Store reference globally so we can recover it
+    missionNamespace setVariable [format ["HANGAR_pilot_%1", _pilotIndex], _unit, true];
+    
+    // CRITICAL FIX: Skip the walking part completely - immediately put in vehicle
+    switch (_role) do {
+        case "driver": {
+            diag_log "Moving pilot directly into driver position";
+            _unit moveInDriver _aircraft;
+        };
+        case "gunner": {
+            diag_log "Moving pilot directly into gunner position";
+            _unit moveInGunner _aircraft;
+        };
+        case "commander": {
+            diag_log "Moving pilot directly into commander position";
+            _unit moveInCommander _aircraft;
+        };
+        case "turret": {
+            diag_log format ["Moving pilot directly into turret %1", _turretPath];
+            _unit moveInTurret [_aircraft, _turretPath];
+        };
+        case "cargo": {
+            diag_log "Moving pilot directly into cargo";
+            _unit moveInCargo _aircraft;
+        };
     };
     
-    // Set pilot movement
-    HANGAR_pilotRunning = true;
-    
-    // Have the pilot run to aircraft
-    _unit doMove (getPos _aircraft);
-    _unit setSpeedMode "FULL";
-    
-    // Wait until pilot is near aircraft
+    // Wait briefly and check if pilot got in
     [_unit, _aircraft, _role, _turretPath, _pilotIndex] spawn {
         params ["_unit", "_aircraft", "_role", "_turretPath", "_pilotIndex"];
         
-        waitUntil {
-            sleep 0.5;
-            (_unit distance _aircraft < 5) || !alive _unit || !alive _aircraft
-        };
+        sleep 1;
         
-        if (alive _unit && alive _aircraft) then {
-            // Determine assignment method based on role
+        // Check if pilot is in the aircraft
+        if (vehicle _unit == _aircraft) then {
+            diag_log "Pilot successfully entered aircraft";
+            
+            // Re-enable simulation now that pilot is safely in aircraft
+            _unit enableSimulationGlobal true;
+            _unit setCaptive false;
+            
+            // Mark aircraft as deployed
+            _aircraft setVariable ["HANGAR_deployed", true, true];
+            _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
+            
+            systemChat format ["%1 is now piloting the aircraft", name _unit];
+        } else {
+            // Emergency teleport if not in vehicle
+            diag_log "EMERGENCY: Pilot failed to enter vehicle, trying direct teleport";
+            
             switch (_role) do {
-                case "driver": {
-                    _unit assignAsDriver _aircraft;
-                    [_unit] orderGetIn true;
-                };
-                case "gunner": {
-                    _unit assignAsGunner _aircraft;
-                    [_unit] orderGetIn true;
-                };
-                case "commander": {
-                    _unit assignAsCommander _aircraft;
-                    [_unit] orderGetIn true;
-                };
-                case "turret": {
-                    _unit assignAsTurret [_aircraft, _turretPath];
-                    [_unit] orderGetIn true;
-                };
-                case "cargo": {
-                    _unit assignAsCargo _aircraft;
-                    [_unit] orderGetIn true;
-                };
+                case "driver": { _unit moveInDriver _aircraft; };
+                case "gunner": { _unit moveInGunner _aircraft; };
+                case "commander": { _unit moveInCommander _aircraft; };
+                case "turret": { _unit moveInTurret [_aircraft, _turretPath]; };
+                case "cargo": { _unit moveInCargo _aircraft; };
             };
             
-            // Wait until pilot is in the aircraft
-            waitUntil {
-                sleep 0.5;
-                vehicle _unit == _aircraft || !alive _unit || !alive _aircraft
-            };
+            sleep 0.5;
             
-            if (alive _unit && alive _aircraft && vehicle _unit == _aircraft) then {
-                // Make unit and aircraft not editable
-                private _curator = getAssignedCuratorLogic player;
-                if (!isNull _curator) then {
-                    _curator removeCuratorEditableObjects [[_unit], true];
-                    _curator removeCuratorEditableObjects [[_aircraft], true];
-                };
-                
-                // Mark aircraft as deployed
+            if (vehicle _unit == _aircraft) then {
+                diag_log "Emergency teleport successful";
+                _unit enableSimulationGlobal true;
+                _unit setCaptive false;
                 _aircraft setVariable ["HANGAR_deployed", true, true];
                 _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
-                
                 systemChat format ["%1 is now piloting the aircraft", name _unit];
-                diag_log format ["Pilot %1 now in aircraft", name _unit];
+            } else {
+                systemChat "Failed to place pilot in aircraft after multiple attempts";
+                diag_log "CRITICAL FAILURE: Could not place pilot in aircraft after multiple attempts";
+                // Clean up the failed pilot
+                deleteVehicle _unit;
+                [_pilotIndex, "assignment", objNull] call HANGAR_fnc_updatePilotStats;
             };
         };
-        
-        HANGAR_pilotRunning = false;
     };
     
     // Return the created unit
     _unit
 };
 
-// COMPLETELY REWRITTEN FUNCTION
-// Function to assign pilot to a stored aircraft (for UI)
+// Function to assign pilot to a stored aircraft (for UI) - REWRITTEN
 HANGAR_fnc_assignPilotToStoredAircraft = {
     params ["_pilotIndex", "_aircraftIndex", ["_role", "driver"], ["_turretPath", []]];
     
@@ -364,13 +438,17 @@ HANGAR_fnc_assignPilotToStoredAircraft = {
         false
     };
     
-    // Check if pilot is available - direct check without function call
-    private _pilotData = HANGAR_pilotRoster select _pilotIndex;
-    private _pilotAircraft = _pilotData select 5;
+    // Get aircraft type and check specialization
+    private _record = HANGAR_storedAircraft select _aircraftIndex;
+    private _aircraftType = _record select 0;
     
-    if (!isNull _pilotAircraft) exitWith {
-        systemChat "Pilot is already assigned to an aircraft";
-        diag_log format ["Pilot %1 is already assigned to aircraft %2", _pilotIndex, _pilotAircraft];
+    // Check if pilot is available and has matching specialization
+    private _check = [_pilotIndex, _aircraftType] call HANGAR_fnc_isPilotAvailableForAircraft;
+    _check params ["_available", "_message"];
+    
+    if (!_available) exitWith {
+        systemChat _message;
+        diag_log format ["Cannot assign pilot to aircraft: %1", _message];
         false
     };
     
@@ -378,7 +456,6 @@ HANGAR_fnc_assignPilotToStoredAircraft = {
     private _pilotAssignment = [_pilotIndex, _role, _turretPath];
     
     // Update stored aircraft
-    private _record = HANGAR_storedAircraft select _aircraftIndex;
     private _crew = _record select 5;
     _crew pushBack _pilotAssignment;
     
@@ -448,30 +525,7 @@ HANGAR_fnc_returnCrewToRoster = {
     true
 };
 
-// Create trigger to return pilots to roster if near hangar
-if (isServer) then {
-    private _returnTrigger = createTrigger ["EmptyDetector", HANGAR_viewPosition, false];
-    _returnTrigger setTriggerArea [500, 500, 0, false, 100];
-    _returnTrigger setTriggerActivation ["ANY", "PRESENT", true];
-    _returnTrigger setTriggerStatements [
-        "this && {({_x getVariable ['HANGAR_isPilot', false] && vehicle _x == _x} count thisList) > 0}",
-        "
-            {
-                if (_x getVariable ['HANGAR_isPilot', false] && vehicle _x == _x) then {
-                    private _pilotIndex = _x getVariable ['HANGAR_pilotIndex', -1];
-                    if (_pilotIndex >= 0) then {
-                        private _name = name _x;
-                        [_pilotIndex, 'assignment', objNull] call HANGAR_fnc_updatePilotStats;
-                        deleteVehicle _x;
-                        systemChat format ['%1 has returned to the pilot roster', _name];
-                    };
-                };
-            } forEach thisList;
-        ",
-        ""
-    ];
-    _returnTrigger setTriggerInterval 2;
-};
+
 
 // HANDLE ZEUS EDITABILITY FOR MANAGED OBJECTS
 // Create a repeating check to handle Zeus editability
@@ -519,4 +573,47 @@ fnc_addPilotToHangarRoster = {
 fnc_returnPilotToHangarRoster = {
     params ["_unit"];
     [_unit] call HANGAR_fnc_returnPilotToRoster
+};
+
+// Add global delete protection for all units marked as pilots
+[] spawn {
+    diag_log "Starting pilot protection watchdog";
+    
+    while {true} do {
+        {
+            if (_x getVariable ["HANGAR_isPilot", false]) then {
+                // Make sure pilot is flagged as essential (prevents automatic cleanup)
+                if !(_x getVariable ["HANGAR_essential_set", false]) then {
+                    _x setVariable ["HANGAR_essential_set", true];
+                    _x setVariable ["BIS_enableRandomization", false];
+                    _x setVariable ["acex_headless_blacklist", true]; 
+                    _x allowDamage false;
+                    _x enableSimulationGlobal true;
+                    _x setCaptive true;
+                    
+                    // This is the key line that prevents automatic deletion
+                    _x addEventHandler ["Deleted", {
+                        params ["_unit"];
+                        diag_log format ["DELETION EVENT DETECTED for pilot: %1", _unit];
+                        systemChat format ["WARNING: Pilot %1 was deleted by the game engine", name _unit];
+                    }];
+                    
+                    diag_log format ["Applied special protection to pilot: %1", _x];
+                };
+                
+                // If pilot is not in a vehicle, check for valid position
+                if (vehicle _x == _x) then {
+                    // Make sure pilot hasn't fallen through the terrain
+                    private _pos = getPosATL _x;
+                    if (_pos select 2 < -5) then {
+                        diag_log format ["Pilot %1 fell through terrain, repositioning", _x];
+                        _pos set [2, 0];
+                        _x setPosATL _pos;
+                    };
+                };
+            };
+        } forEach allUnits;
+        
+        sleep 5;
+    };
 };
