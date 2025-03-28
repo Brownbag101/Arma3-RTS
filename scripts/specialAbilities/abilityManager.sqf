@@ -1,4 +1,4 @@
-// scripts/specialAbilities/abilityManager.sqf - UPDATED WITH NEW ABILITIES
+// scripts/specialAbilities/abilityManager.sqf - UPDATED WITH SMG BURST ABILITY
 
 // Initialize array to store ability icons
 RTSUI_abilityIcons = [];
@@ -32,6 +32,13 @@ RTSUI_abilityDatabase = [
         "Plant Time Bomb",
         "Place timed explosive device (requires TNT)",
         "scripts\specialAbilities\abilities\timeBomb.sqf"
+    ],
+    [
+        "smgburst",
+        "\A3\ui_f\data\IGUI\Cfg\WeaponIcons\mg_ca.paa",
+        "SMG Burst",
+        "Empty your SMG at a target in slow motion",
+        "scripts\specialAbilities\abilities\smgBurst.sqf"
     ]
 ];
 
@@ -166,7 +173,8 @@ fnc_createAbilityIcons = {
                     
                     // Check for active abilities that need to be cancelled first
                     if ((!isNil "AIMEDSHOT_active" && {AIMEDSHOT_active}) || 
-                        (!isNil "TIMEBOMB_active" && {TIMEBOMB_active})) then {
+                        (!isNil "TIMEBOMB_active" && {TIMEBOMB_active}) ||
+                        (!isNil "SMGBURST_active" && {SMGBURST_active})) then {
                         
                         // Simulate backspace to cancel active ability
                         call fnc_simulateBackspaceKey;

@@ -1,4 +1,4 @@
-// Time Bomb Ability - DIRECT APPROACH
+// Time Bomb Ability
 // Using simplified explosive creation method with UI
 
 // Initialize global variables
@@ -51,7 +51,6 @@ fnc_resetTimeBombState = {
         ctrlDelete _x;
     } forEach TIMEBOMB_controls;
     TIMEBOMB_controls = [];
-    
     
     systemChat "Time bomb state reset complete";
 };
@@ -212,7 +211,7 @@ fnc_createTimeBombUI = {
     TIMEBOMB_timerButtons = _timerButtons;
 };
 
-// Execute the time bomb placement and explosion - DIRECT APPROACH
+// Execute the time bomb placement and explosion
 fnc_executeTimeBomb = {
     if (count TIMEBOMB_selectedPos == 0) exitWith {
         systemChat "No position selected for bomb placement";
@@ -259,7 +258,7 @@ fnc_executeTimeBomb = {
         // Re-enable unit's movement
         _unit enableAI "MOVE";
         
-        // DIRECT APPROACH: Create the bomb and set timer
+        // Create the bomb and set timer
         private _bomb = createVehicle [TIMEBOMB_bombType, _targetPos, [], 0, "CAN_COLLIDE"];
         _bomb setPosATL [_targetPos select 0, _targetPos select 1, (_targetPos select 2) + 0.05];
         
@@ -280,7 +279,37 @@ fnc_executeTimeBomb = {
         private _zeus = getAssignedCuratorLogic player;
         if (!isNull _zeus) then {
             _zeus addCuratorEditableObjects [[_bomb], true];
-            systemChat "Added bomb to Zeus";
+            
+            // Store the bomb reference in a global variable for the Draw3D handler
+            missionNamespace setVariable ["TIMEBOMB_activeBomb", _bomb];
+            
+            // Add an icon using Draw3D for the planted bomb
+            private _bombDrawHandler = addMissionEventHandler ["Draw3D", {
+                private _bomb = missionNamespace getVariable ["TIMEBOMB_activeBomb", objNull];
+                if (isNull _bomb) exitWith {
+                    // If bomb is gone, remove this handler
+                    removeMissionEventHandler ["Draw3D", _thisEventHandler];
+                };
+                
+                private _bombPos = getPos _bomb;
+                private _timeRemaining = _bomb getVariable ["timeRemaining", 0];
+                
+                drawIcon3D [
+                    "\A3\ui_f\data\IGUI\Cfg\SimpleTasks\types\destroy_ca.paa",
+                    [1,0,0,1],
+                    ASLToAGL (AGLToASL _bombPos),
+                    1,
+                    1,
+                    0,
+                    format ["BOMB - %1", [_timeRemaining] call fnc_formatTimerDisplay],
+                    2,
+                    0.05,
+                    "PuristaMedium"
+                ];
+            }];
+            
+            // Store the handler ID on the bomb
+            _bomb setVariable ["drawHandlerId", _bombDrawHandler];
         };
         
         // SIMPLE TIMER: Wait and then detonate
@@ -292,6 +321,9 @@ fnc_executeTimeBomb = {
             // Show periodic countdown
             private _lastAnnounce = _fuseTime;
             for [{private _i = _fuseTime}, {_i > 0}, {_i = _i - 1}] do {
+                // Update the time remaining for the icon
+                _bomb setVariable ["timeRemaining", _i];
+                
                 // Announce time at certain intervals
                 if (_i == 60 || _i == 30 || _i == 20 || _i == 10 || _i <= 5) then {
                     systemChat format["Bomb detonates in %1 seconds", _i];
@@ -301,35 +333,10 @@ fnc_executeTimeBomb = {
             
             // BOOM!
             if (!isNull _bomb) then {
-                systemChat "BOOM! Bomb detonating!";
-                _bomb setDamage 1; // This triggers the explosion
-            };
-			
-			// Delete the helper object
-			private _helper = missionNamespace getVariable ["TIMEBOMB_iconHelper", objNull];
-			if (!isNull _helper) then {
-				deleteVehicle _helper;
-				missionNamespace setVariable ["TIMEBOMB_iconHelper", objNull];
-			};
-        };
-        
-        [_bomb, _fuseTime] spawn {
-            params ["_bomb", "_fuseTime"];
-            
-            // Show periodic countdown
-            private _lastAnnounce = _fuseTime;
-            for [{private _i = _fuseTime}, {_i > 0}, {_i = _i - 1}] do {
-                // Announce time at certain intervals
-                if (_i == 60 || _i == 30 || _i == 20 || _i == 10 || _i <= 5) then {
-                    systemChat format["Bomb detonates in %1 seconds", _i];
-                };
-                sleep 1;
-            }; 
-            
-            // BOOM!
-            if (!isNull _bomb) then {
-                // Remove the Zeus icon before explosion
-                [TIMEBOMB_iconHelper] call BIS_fnc_removeCuratorIcon;
+                // Clear the global reference to the bomb
+                missionNamespace setVariable ["TIMEBOMB_activeBomb", objNull];
+                
+                // The Draw3D handler will auto-remove itself when it detects the bomb is null;
                 
                 systemChat "BOOM! Bomb detonating!";
                 _bomb setDamage 1; // This triggers the explosion
@@ -352,19 +359,19 @@ TIMEBOMB_drawHandler = addMissionEventHandler ["Draw3D", {
     if (TIMEBOMB_active) then {
         TIMEBOMB_currentPos = screenToWorld getMousePosition;
         
-        // If we have a selected position, draw a marker there
+        // If we have a selected position, draw the marker there
         if (count TIMEBOMB_selectedPos > 0) then {
             private _pos = TIMEBOMB_selectedPos;
             
-            // Draw main targeting reticle
+            // Draw bombing target icon
             drawIcon3D [
-                "\a3\ui_f\data\IGUI\Cfg\Targeting\targetingM_ca.paa",
+                "\A3\ui_f\data\IGUI\Cfg\SimpleTasks\types\destroy_ca.paa",
                 [1,0,0,1],    // Red
                 ASLToAGL (AGLToASL _pos),
-                2,
-                2,
-                45,
-                "",
+                1.5,
+                1.5,
+                0,
+                "BOMB PLACEMENT",
                 2,
                 0.05,
                 "PuristaMedium"
@@ -471,20 +478,6 @@ TIMEBOMB_keyHandler = _display displayAddEventHandler ["KeyDown", {
             } else {
                 TIMEBOMB_selectedPos = _pos;
                 TIMEBOMB_currentPos = _pos;
-                
-                // Create a helper object for the Zeus icon (will be deleted later)
-                private _helperLogic = "Logic" createVehicleLocal _pos;
-                _helperLogic setPosATL _pos;
-                
-                // Store the helper object for later access
-                missionNamespace setVariable ["TIMEBOMB_iconHelper", _helperLogic];
-                
-                // Add icon to curator
-                private _zeus = getAssignedCuratorLogic player;
-                if (!isNull _zeus) then {
-                    _zeus addCuratorEditableObjects [[_helperLogic], true];
-                    systemChat "Added helper object to Zeus";
-                };
                 
                 systemChat format["Position marked at %1, distance %2m", _pos, round _distance];
                 

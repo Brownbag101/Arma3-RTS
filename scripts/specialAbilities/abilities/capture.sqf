@@ -9,21 +9,7 @@ private _cooldownTime = 600;      // Cooldown time in seconds (10 minutes)
 private _captureRatio = 1.5;      // Our units must outnumber enemies by this ratio
 private _maxCaptures = 5;         // Maximum number of units that can be captured at once
 
-// Check if ability is on cooldown
-if (_unit getVariable ["ABILITY_capture_cooldown", 0] > time) then {
-    private _remainingTime = ceil((_unit getVariable ["ABILITY_capture_cooldown", 0]) - time);
-    private _minutes = floor(_remainingTime / 60);
-    private _seconds = _remainingTime % 60;
-    
-    systemChat format ["%1's capture ability on cooldown: %2m %3s remaining", 
-        name _unit, _minutes, _seconds];
-    
-    // Add hint with larger text
-    hint parseText format ["<t size='1.5' color='#ff9900'>Ability on Cooldown</t><br/><br/>%1's capture ability will be available in:<br/><t size='1.2'>%2m %3s</t>", 
-        name _unit, _minutes, _seconds];
-    
-    exitWith {};
-};
+
 
 systemChat format ["%1 is using Capture ability!", name _unit];
 
