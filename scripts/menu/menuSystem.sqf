@@ -5,13 +5,20 @@
 RTS_menuControls = [];
 
 // Menu definitions with icons and tooltips
+// === GAMEPLAY VARIABLES - ADJUST THESE VALUES TO CHANGE MENU BUTTONS ===
 RTS_menuButtons = [
     ["command", "a3\ui_f\data\igui\cfg\simpletasks\types\scout_ca.paa", "Command Center", "View strategic intelligence and enemy information"],
     ["management", "a3\ui_f\data\igui\cfg\simpletasks\types\map_ca.paa", "Management", "Access unit and squad commands"],
     ["research", "a3\ui_f\data\igui\cfg\simpletasks\types\use_ca.paa", "Research", "Research new technologies and equipment"],
     ["construction", "a3\ui_f\data\igui\cfg\simpletasks\types\repair_ca.paa", "Construction", "Construct buildings and defenses"],
     ["training", "\a3\ui_f\data\gui\rsc\rscdisplayarsenal\face_ca.paa", "Training", "Train and upgrade units"],
-    ["procurement", "a3\ui_f\data\igui\cfg\simpletasks\types\container_ca.paa", "Procurement", "Deploy constructed items to the field"]
+    ["procurement", "a3\ui_f\data\igui\cfg\simpletasks\types\container_ca.paa", "Procurement", "Deploy constructed items to the field"],
+    
+    // New placeholder buttons
+    ["placeholder1", "a3\ui_f\data\igui\cfg\simpletasks\types\target_ca.paa", "Placeholder 1", "Description for placeholder 1"],
+    ["placeholder2", "a3\ui_f\data\igui\cfg\simpletasks\types\download_ca.paa", "Placeholder 2", "Description for placeholder 2"],
+    ["placeholder3", "a3\ui_f\data\igui\cfg\simpletasks\types\search_ca.paa", "Placeholder 3", "Description for placeholder 3"],
+    ["placeholder4", "a3\ui_f\data\igui\cfg\simpletasks\types\help_ca.paa", "Placeholder 4", "Description for placeholder 4"]
 ];
 
 // Function to create the menu buttons
@@ -169,6 +176,26 @@ RTS_fnc_createMenuButtons = {
                         systemChat "Procurement system is not loaded yet";
                         hint "Procurement system is not loaded yet";
                     };
+                };
+                case "placeholder1": {
+                    // Placeholder 1 functionality
+                    systemChat "Placeholder 1 button clicked - functionality not implemented yet";
+                    hint "Placeholder 1 button clicked - functionality not implemented yet";
+                };
+                case "placeholder2": {
+                    // Placeholder 2 functionality
+                    systemChat "Placeholder 2 button clicked - functionality not implemented yet";
+                    hint "Placeholder 2 button clicked - functionality not implemented yet";
+                };
+                case "placeholder3": {
+                    // Placeholder 3 functionality
+                    systemChat "Placeholder 3 button clicked - functionality not implemented yet";
+                    hint "Placeholder 3 button clicked - functionality not implemented yet";
+                };
+                case "placeholder4": {
+                    // Placeholder 4 functionality
+                    systemChat "Placeholder 4 button clicked - functionality not implemented yet";
+                    hint "Placeholder 4 button clicked - functionality not implemented yet";
                 };
             };
         }];
