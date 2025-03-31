@@ -114,6 +114,8 @@ if (isNil "HANGAR_viewedAircraft") then { HANGAR_viewedAircraft = objNull; };
 if (isNil "HANGAR_selectedCategory") then { HANGAR_selectedCategory = ""; };
 if (isNil "HANGAR_uiControls") then { HANGAR_uiControls = []; };
 if (isNil "HANGAR_pilotRunning") then { HANGAR_pilotRunning = false; };
+// NEW: Track deployed aircraft separately
+if (isNil "HANGAR_deployedAircraft") then { HANGAR_deployedAircraft = []; };
 
 // === PILOT CONFIGURATION ===
 // Experience levels for pilots
@@ -261,6 +263,21 @@ if (!isNil "RTS_menuButtons") then {
                 systemChat "Virtual Hangar button added to menu";
             };
         } forEach RTS_menuButtons;
+    };
+};
+
+// NEW: Monitor deployed aircraft
+[] spawn {
+    // Wait for the function to be defined first
+    waitUntil {!isNil "HANGAR_fnc_monitorDeployedAircraft"};
+    
+    // Log that monitoring is starting
+    diag_log "Starting aircraft deployment monitoring...";
+    
+    // Then start the monitoring loop
+    while {true} do {
+        call HANGAR_fnc_monitorDeployedAircraft;
+        sleep 30; // Check every 30 seconds
     };
 };
 

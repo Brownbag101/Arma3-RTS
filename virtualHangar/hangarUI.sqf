@@ -54,6 +54,17 @@ HANGAR_fnc_forceCloseAllUI = {
 
 // Function to open the Virtual Hangar UI
 HANGAR_fnc_openUI = {
+	
+	// Clean up any stray view models from previous sessions
+	if (!isNil "HANGAR_fnc_cleanupViewModels") then {
+		private _cleaned = [] call HANGAR_fnc_cleanupViewModels;
+		if (_cleaned > 0) then {
+			systemChat format ["Cleaned up %1 stray aircraft models", _cleaned];
+		};
+	} else {
+		diag_log "WARNING: HANGAR_fnc_cleanupViewModels not defined yet";
+};
+	
     // Store original camera position if needed
     if (isNull curatorCamera) exitWith {
         systemChat "Zeus camera not active";
@@ -71,9 +82,7 @@ HANGAR_fnc_openUI = {
     // Move camera to view the hangar area
     [] call fnc_focusCameraOnAirfield;
     
-   
-    
-    // Clear any viewed aircraft
+    // Clear any viewed aircraft properly (but don't delete deployed ones)
     call HANGAR_fnc_clearViewedAircraft;
     
     // Get the Zeus display and create UI on top
@@ -97,7 +106,8 @@ HANGAR_fnc_closeUI = {
     // Make sure all UI panels are closed first
     call HANGAR_fnc_forceCloseAllUI;
     
-    
+    // Clear viewed aircraft properly (but don't delete deployed ones)
+    call HANGAR_fnc_clearViewedAircraft;
     
     // Restore original camera position
     if (!isNil "HANGAR_originalCamPos") then {
@@ -120,6 +130,12 @@ HANGAR_fnc_closeUI = {
     
     systemChat "Virtual Hangar closed";
     diag_log "Virtual Hangar UI closed";
+};
+
+// Clean up any stray view models from previous sessions
+private _cleaned = [] call HANGAR_fnc_cleanupViewModels;
+if (_cleaned > 0) then {
+    systemChat format ["Cleaned up %1 stray aircraft models", _cleaned];
 };
 
 // Function to create the main UI elements
@@ -366,6 +382,18 @@ HANGAR_fnc_updateAircraftList = {
     // Log the current state for debugging
     diag_log format ["Updating aircraft list. Category: %1, Total stored: %2", HANGAR_selectedCategory, count HANGAR_storedAircraft];
     
+    // NEW: Check for deployed aircraft of this category that aren't in storage
+    private _deployedTypes = [];
+    {
+        if (!isNull _x) then {
+            private _storageIndex = _x getVariable ["HANGAR_storageIndex", -1];
+            if (_storageIndex >= 0) then {
+                _deployedTypes pushBack [typeOf _x, _storageIndex, _x];
+            };
+        };
+    } forEach HANGAR_deployedAircraft;
+    
+    // Process stored aircraft first
     {
         _x params ["_type", "_displayName"];
         
@@ -385,16 +413,22 @@ HANGAR_fnc_updateAircraftList = {
         
         // If category matches, add to filtered list
         if (_category == HANGAR_selectedCategory) then {
-            _categoryAircraft pushBack [_forEachIndex, _displayName];
-            diag_log format ["Adding aircraft to list: %1 (index: %2)", _displayName, _forEachIndex];
+            _categoryAircraft pushBack [_forEachIndex, _displayName, false]; // false = not deployed
+            diag_log format ["Adding aircraft to list: %1 (index: %2, stored)", _displayName, _forEachIndex];
         };
     } forEach HANGAR_storedAircraft;
     
     // Add aircraft to list
     {
-        _x params ["_index", "_displayName"];
-        private _idx = _listbox lbAdd _displayName;
+        _x params ["_index", "_displayName", "_isDeployed"];
+        private _prefix = if (_isDeployed) then {"[DEPLOYED] "} else {""};
+        private _idx = _listbox lbAdd (_prefix + _displayName);
         _listbox lbSetData [_idx, str _index];
+        
+        // Make deployed aircraft green
+        if (_isDeployed) then {
+            _listbox lbSetColor [_idx, [0.5, 1, 0.5, 1]];
+        };
     } forEach _categoryAircraft;
     
     // If no aircraft found, add a message
@@ -490,9 +524,27 @@ HANGAR_fnc_updateAircraftInfo = {
         private _crewStatusText = format ["%1/%2", count _crew, _requiredCrew];
         private _crewStatusColor = if (count _crew >= _requiredCrew) then {"#8cff9b"} else {"#ff8c8c"};
         
+        // NEW: Check if aircraft is deployed
+        private _deployedText = "";
+        private _isDeployed = false;
+        
+        {
+            if (!isNull _x) then {
+                private _storedIndex = _x getVariable ["HANGAR_storageIndex", -1];
+                if (_storedIndex == HANGAR_selectedAircraftIndex) exitWith {
+                    _isDeployed = true;
+                };
+            };
+        } forEach HANGAR_deployedAircraft;
+        
+        if (_isDeployed) then {
+            _deployedText = "<t color='#8cff9b' size='1.2'>AIRCRAFT DEPLOYED</t><br/>";
+        };
+        
         // Format full info with improved layout
         private _infoText = format [
             "<t size='1.5' align='center'>%1</t><br/><br/>" +
+            "%11" +
             "<t size='1.2' color='#8888ff'>Status:</t><br/>" +
             "<t size='1.0'>Fuel: <t color='%4'>%2%3</t></t><br/>" +
             "<t size='1.0'>Damage: <t color='%6'>%5%3</t></t><br/>" +
@@ -508,7 +560,8 @@ HANGAR_fnc_updateAircraftInfo = {
             _crewStatusText,
             _crewStatusColor,
             _weaponsText,
-            _crewText
+            _crewText,
+            _deployedText
         ];
         
         _infoBox ctrlSetStructuredText parseText _infoText;
