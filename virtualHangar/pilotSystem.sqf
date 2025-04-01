@@ -1,4 +1,4 @@
-// Virtual Hangar System - Pilot Management - COMPLETE REWRITE
+// Virtual Hangar System - Pilot Management
 // Handles pilot roster, progression, and assignment
 
 // Initialize pilot roster if not exists
@@ -28,7 +28,10 @@ HANGAR_fnc_getPilotSkillMultiplier = {
 HANGAR_fnc_addExistingPilotToRoster = {
     params ["_unit", ["_specialization", "Fighters"]];
     
-    if (isNull _unit) exitWith {-1};
+    if (isNull _unit) exitWith {
+        diag_log "PILOT: Cannot add null unit to roster";
+        -1
+    };
     
     // Check if pilot already exists in roster
     private _existingIndex = -1;
@@ -43,6 +46,7 @@ HANGAR_fnc_addExistingPilotToRoster = {
     // If pilot already exists, return the existing index
     if (_existingIndex != -1) exitWith {
         systemChat format ["Pilot %1 already in roster", _pilotName];
+        diag_log format ["PILOT: Pilot already in roster: %1", _pilotName];
         _existingIndex
     };
     
@@ -78,7 +82,7 @@ HANGAR_fnc_addExistingPilotToRoster = {
     private _newIndex = (count HANGAR_pilotRoster) - 1;
     
     systemChat format ["Pilot %1 added to roster with rank %2", _pilotName, [_rankIndex] call HANGAR_fnc_getPilotRankName];
-    diag_log format ["Added pilot to roster: %1 (index: %2, rank: %3)", _pilotName, _newIndex, [_rankIndex] call HANGAR_fnc_getPilotRankName];
+    diag_log format ["PILOT: Added to roster: %1 (index: %2, rank: %3)", _pilotName, _newIndex, [_rankIndex] call HANGAR_fnc_getPilotRankName];
     
     _newIndex
 };
@@ -87,7 +91,10 @@ HANGAR_fnc_addExistingPilotToRoster = {
 HANGAR_fnc_updatePilotStats = {
     params ["_pilotIndex", "_key", "_value"];
     
-    if (_pilotIndex < 0 || _pilotIndex >= count HANGAR_pilotRoster) exitWith {false};
+    if (_pilotIndex < 0 || _pilotIndex >= count HANGAR_pilotRoster) exitWith {
+        diag_log format ["PILOT: Invalid pilot index for stat update: %1", _pilotIndex];
+        false
+    };
     
     private _pilotData = HANGAR_pilotRoster select _pilotIndex;
     
@@ -107,7 +114,7 @@ HANGAR_fnc_updatePilotStats = {
                     _pilotData set [1, _i];
                     private _newRankName = [_i] call HANGAR_fnc_getPilotRankName;
                     systemChat format ["%1 promoted to %2!", _pilotData select 0, _newRankName];
-                    diag_log format ["Pilot %1 promoted to %2", _pilotData select 0, _newRankName];
+                    diag_log format ["PILOT: Promoted to %1: %2", _newRankName, _pilotData select 0];
                     _promoted = true;
                 };
             };
@@ -121,7 +128,7 @@ HANGAR_fnc_updatePilotStats = {
             // Maybe add special ace status based on kills?
             if ((_pilotData select 3) >= 5) then {
                 systemChat format ["%1 is now an Ace with %2 kills!", _pilotData select 0, _pilotData select 3];
-                diag_log format ["Pilot %1 is now an Ace with %2 kills", _pilotData select 0, _pilotData select 3];
+                diag_log format ["PILOT: Ace status achieved for %1 with %2 kills", _pilotData select 0, _pilotData select 3];
                 true
             } else {
                 false
@@ -195,7 +202,7 @@ HANGAR_fnc_isPilotAvailableForAircraft = {
     params ["_pilotIndex", "_aircraftType"];
     
     if (_pilotIndex < 0 || _pilotIndex >= count HANGAR_pilotRoster) exitWith {
-        diag_log format ["isPilotAvailableForAircraft: Invalid pilot index %1", _pilotIndex];
+        diag_log format ["PILOT: Invalid pilot index for availability check: %1", _pilotIndex];
         [false, "Invalid pilot index"]
     };
     
@@ -206,7 +213,7 @@ HANGAR_fnc_isPilotAvailableForAircraft = {
     
     // Check if pilot is already assigned
     if (!isNull _currentAircraft) exitWith {
-        diag_log format ["isPilotAvailableForAircraft: Pilot %1 already assigned", _pilotIndex];
+        diag_log format ["PILOT: Already assigned: %1", _pilotIndex];
         [false, "Pilot already assigned"]
     };
     
@@ -227,8 +234,7 @@ HANGAR_fnc_isPilotAvailableForAircraft = {
     
     // Check if specialization matches
     if (_aircraftCategory != "" && _specialization != _aircraftCategory) exitWith {
-        diag_log format ["isPilotAvailableForAircraft: Pilot %1 specialization %2 doesn't match aircraft category %3", 
-            _pilotIndex, _specialization, _aircraftCategory];
+        diag_log format ["PILOT: Specialization mismatch - Has: %1, Needs: %2", _specialization, _aircraftCategory];
         [false, format ["Pilot specializes in %1, not %2", _specialization, _aircraftCategory]]
     };
     
@@ -236,22 +242,22 @@ HANGAR_fnc_isPilotAvailableForAircraft = {
     [true, ""]
 };
 
-// Function to assign a pilot to an aircraft - FIXED VERSION
+// Function to assign a pilot to an aircraft
 HANGAR_fnc_assignPilotToAircraft = {
-    params ["_pilotIndex", "_aircraft", ["_role", "driver"], ["_turretPath", []]];
+    params ["_pilotIndex", "_aircraft", ["_role", "driver"], ["_turretPath", []], ["_isDeployed", false]];
     
-    diag_log format ["ASSIGN PILOT TO AIRCRAFT - FIXED VERSION - Pilot: %1, Aircraft: %2, Role: %3", 
-        _pilotIndex, typeOf _aircraft, _role];
+    diag_log format ["PILOT: Assigning index %1 to %2 as %3 (Deployed: %4)", 
+        _pilotIndex, typeOf _aircraft, _role, _isDeployed];
     
     if (_pilotIndex < 0 || _pilotIndex >= count HANGAR_pilotRoster) exitWith {
         systemChat "Invalid pilot index";
-        diag_log format ["Invalid pilot index: %1, roster size: %2", _pilotIndex, count HANGAR_pilotRoster];
+        diag_log format ["PILOT: Invalid index: %1, roster size: %2", _pilotIndex, count HANGAR_pilotRoster];
         objNull
     };
     
     if (isNull _aircraft) exitWith {
         systemChat "Invalid aircraft";
-        diag_log "Aircraft is null";
+        diag_log "PILOT: Aircraft is null";
         objNull
     };
     
@@ -259,9 +265,9 @@ HANGAR_fnc_assignPilotToAircraft = {
     private _pilotData = HANGAR_pilotRoster select _pilotIndex;
     private _currentAircraft = _pilotData select 5;
     
-    if (!isNull _currentAircraft) exitWith {
-        systemChat "Pilot is already assigned to an aircraft";
-        diag_log format ["Pilot %1 is already assigned to an aircraft", _pilotIndex];
+    if (!isNull _currentAircraft && {_currentAircraft != _aircraft}) exitWith {
+        systemChat "Pilot is already assigned to another aircraft";
+        diag_log format ["PILOT: Already assigned to different aircraft: %1", _pilotIndex];
         objNull
     };
     
@@ -274,9 +280,9 @@ HANGAR_fnc_assignPilotToAircraft = {
     private _spawnPos = getPosATL _aircraft vectorAdd [3, 3, 0];
     _spawnPos set [2, 0];
     
-    diag_log format ["Spawning pilot at position near aircraft: %1", _spawnPos];
+    diag_log format ["PILOT: Spawning at position: %1", _spawnPos];
     
-    // Create the unit with the specified model AND LOCAL TO SERVER
+    // Create the unit
     private _side = side player;
     private _group = createGroup [_side, true];
     private _unit = objNull;
@@ -301,11 +307,11 @@ HANGAR_fnc_assignPilotToAircraft = {
     
     if (isNull _unit) exitWith {
         systemChat "Failed to create pilot unit! Check class name and server status.";
-        diag_log "Critical error: Failed to create pilot unit";
+        diag_log "PILOT: Critical error: Failed to create unit";
         objNull
     };
     
-    // CRITICAL FIX: Immediately make non-simulated to prevent simulation issues
+    // Temporarily disable simulation while we set up the unit
     _unit enableSimulationGlobal false;
     
     // Set name and other attributes
@@ -317,6 +323,11 @@ HANGAR_fnc_assignPilotToAircraft = {
     _unit setVariable ["HANGAR_isPilot", true, true];
     _unit setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
     
+    // Add protection flags
+    _unit setVariable ["HANGAR_essential_set", true, true];
+    _unit setVariable ["BIS_enableRandomization", false, true];
+    _unit setVariable ["acex_headless_blacklist", true, true];
+    
     // Update pilot data to show assigned to this aircraft
     [_pilotIndex, "assignment", _aircraft] call HANGAR_fnc_updatePilotStats;
     
@@ -324,25 +335,30 @@ HANGAR_fnc_assignPilotToAircraft = {
     private _skillMultiplier = [_rankIndex] call HANGAR_fnc_getPilotSkillMultiplier;
     _unit setSkill (_skillMultiplier * 0.7);
     
-    // Disable AI systems for all pilot types
-    {
-        _unit disableAI _x;
-    } forEach ["TARGET", "AUTOTARGET", "MOVE", "ANIM", "FSM"];
-    
-    // NEW: Special handling for view model pilots
-    if (_aircraft getVariable ["HANGAR_isViewModel", false]) then {
-        // Completely disable ALL AI for view model pilots
+    // Configure AI behavior based on deployment status
+    if (!_isDeployed) then {
+        // For view models, disable all AI
         _unit disableAI "ALL";
         _unit setBehaviour "CARELESS";
         _unit allowFleeing 0;
         _unit setVariable ["HANGAR_viewModelPilot", true, true];
-        diag_log format ["Applied special view model pilot restrictions to %1", _unit];
+        diag_log format ["PILOT: Setup view model pilot: %1", _unit];
+    } else {
+        // For deployed aircraft, enable necessary AI
+        _unit enableAI "TARGET";
+        _unit enableAI "AUTOTARGET";
+        _unit enableAI "MOVE";
+        _unit enableAI "ANIM";
+        _unit enableAI "FSM";
+        _unit setBehaviour "AWARE";
+        _unit setCombatMode "YELLOW";
+        diag_log format ["PILOT: Setup deployed pilot: %1", _unit];
     };
     
     // Store reference globally
     missionNamespace setVariable [format ["HANGAR_pilot_%1", _pilotIndex], _unit, true];
     
-    // Skip walking, directly put in vehicle
+    // Move into vehicle
     switch (_role) do {
         case "driver": { _unit moveInDriver _aircraft; };
         case "gunner": { _unit moveInGunner _aircraft; };
@@ -352,120 +368,164 @@ HANGAR_fnc_assignPilotToAircraft = {
     };
     
     // Check if pilot got in
-    [_unit, _aircraft, _role, _turretPath, _pilotIndex] spawn {
-        params ["_unit", "_aircraft", "_role", "_turretPath", "_pilotIndex"];
+[_unit, _aircraft, _role, _turretPath, _pilotIndex, _isDeployed] spawn {
+    params ["_unit", "_aircraft", "_role", "_turretPath", "_pilotIndex", "_isDeployed"];
+    
+    sleep 1;
+    
+    if (vehicle _unit == _aircraft) then {
+        diag_log "PILOT: Successfully entered aircraft";
         
-        sleep 1;
+        // Re-enable simulation
+        _unit enableSimulationGlobal true;
         
-        if (vehicle _unit == _aircraft) then {
-            diag_log "Pilot successfully entered aircraft";
-            
-            _unit enableSimulationGlobal true;
+        // Set up pilot differently based on whether this is for deployment or viewing
+        if (_isDeployed) then {
+            // For deployed aircraft, ensure all AI is enabled
             _unit setCaptive false;
             
-            // Only mark as deployed if not a view model
-            if !(_aircraft getVariable ["HANGAR_isViewModel", false]) then {
+            // Enable ALL necessary AI systems for deployed pilots
+            _unit enableAI "ALL"; // Enable everything first
+            
+            // Then explicitly enable critical systems
+            {
+                _unit enableAI _x;
+            } forEach ["PATH", "MOVE", "TARGET", "AUTOTARGET", "FSM", "WEAPONAIM", "TEAMSWITCH"];
+            
+            // Set behavior that allows movement
+            _unit setBehaviour "AWARE";
+            _unit setCombatMode "YELLOW";
+            _unit allowFleeing 0;
+            
+            // Set aircraft variables
+            _aircraft setVariable ["HANGAR_deployed", true, true];
+            _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
+            
+            // Start the engine
+            _aircraft engineOn true;
+            
+            diag_log format ["PILOT: %1 setup as active pilot with full AI enabled", _unit];
+            systemChat format ["%1 is now piloting the aircraft", name _unit];
+        } else {
+            // For view models, keep AI disabled
+            _unit setCaptive true;
+            _unit disableAI "ALL";
+            
+            diag_log format ["PILOT: %1 setup as view model pilot with AI disabled", _unit];
+            systemChat format ["%1 is now assigned to the aircraft", name _unit];
+        };
+    } else {
+        // Emergency teleport if needed
+        diag_log "PILOT: EMERGENCY - Failed to enter vehicle, trying direct teleport";
+        
+        switch (_role) do {
+            case "driver": { _unit moveInDriver _aircraft; };
+            case "gunner": { _unit moveInGunner _aircraft; };
+            case "commander": { _unit moveInCommander _aircraft; };
+            case "turret": { _unit moveInTurret [_aircraft, _turretPath]; };
+            case "cargo": { _unit moveInCargo _aircraft; };
+        };
+        
+        sleep 0.5;
+        
+        if (vehicle _unit == _aircraft) then {
+            diag_log "PILOT: Emergency teleport successful";
+            _unit enableSimulationGlobal true;
+            
+            if (_isDeployed) then {
+                _unit setCaptive false;
+                _unit enableAI "ALL";
+                _unit setBehaviour "AWARE";
+                _unit setCombatMode "YELLOW";
                 _aircraft setVariable ["HANGAR_deployed", true, true];
                 _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
-                systemChat format ["%1 is now piloting the aircraft", name _unit];
+                _aircraft engineOn true;
             } else {
-                // For view models, keep AI disabled
+                _unit setCaptive true;
                 _unit disableAI "ALL";
-                systemChat format ["%1 is now assigned to the aircraft", name _unit];
             };
         } else {
-            // Emergency teleport if needed
-            diag_log "EMERGENCY: Pilot failed to enter vehicle, trying direct teleport";
-            
-            switch (_role) do {
-                case "driver": { _unit moveInDriver _aircraft; };
-                case "gunner": { _unit moveInGunner _aircraft; };
-                case "commander": { _unit moveInCommander _aircraft; };
-                case "turret": { _unit moveInTurret [_aircraft, _turretPath]; };
-                case "cargo": { _unit moveInCargo _aircraft; };
-            };
-            
-            sleep 0.5;
-            
-            if (vehicle _unit == _aircraft) then {
-                diag_log "Emergency teleport successful";
-                _unit enableSimulationGlobal true;
-                
-                if !(_aircraft getVariable ["HANGAR_isViewModel", false]) then {
-                    _aircraft setVariable ["HANGAR_deployed", true, true];
-                    _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
-                } else {
-                    _unit disableAI "ALL";
-                };
-            } else {
-                systemChat "Failed to place pilot in aircraft";
-                deleteVehicle _unit;
-                [_pilotIndex, "assignment", objNull] call HANGAR_fnc_updatePilotStats;
-            };
+            systemChat "Failed to place pilot in aircraft";
+            diag_log "PILOT: Failed to place in aircraft even after teleport attempt";
+            deleteVehicle _unit;
+            [_pilotIndex, "assignment", objNull] call HANGAR_fnc_updatePilotStats;
         };
     };
-    
-    _unit
 };
 
-// Function to assign pilot to a stored aircraft (for UI) - REWRITTEN
+};
+
+// Function to assign pilot to a stored aircraft (for UI)
 HANGAR_fnc_assignPilotToStoredAircraft = {
     params ["_pilotIndex", "_aircraftIndex", ["_role", "driver"], ["_turretPath", []]];
     
     // Direct checks with detailed logging
-    diag_log format ["ASSIGN PILOT TO STORED AIRCRAFT - Pilot: %1, Aircraft: %2", _pilotIndex, _aircraftIndex];
+    diag_log format ["PILOT: Assigning to stored aircraft - Pilot: %1, Aircraft: %2", _pilotIndex, _aircraftIndex];
     
     // Validate pilot index
     if (_pilotIndex < 0 || _pilotIndex >= count HANGAR_pilotRoster) exitWith {
         systemChat "Invalid pilot index";
-        diag_log format ["Invalid pilot index: %1, Roster size: %2", _pilotIndex, count HANGAR_pilotRoster];
+        diag_log format ["PILOT: Invalid pilot index: %1, Roster size: %2", _pilotIndex, count HANGAR_pilotRoster];
         false
     };
     
     // Validate aircraft index
     if (_aircraftIndex < 0 || _aircraftIndex >= count HANGAR_storedAircraft) exitWith {
         systemChat "Invalid aircraft index";
-        diag_log format ["Invalid aircraft index: %1, Aircraft count: %2", _aircraftIndex, count HANGAR_storedAircraft];
+        diag_log format ["PILOT: Invalid aircraft index: %1, Aircraft count: %2", _aircraftIndex, count HANGAR_storedAircraft];
         false
     };
     
     // Get aircraft type and check specialization
     private _record = HANGAR_storedAircraft select _aircraftIndex;
-    private _aircraftType = _record select 0;
+    _record params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew", "_customData", "_isDeployed", "_deployedInstance"];
     
     // Check if pilot is available and has matching specialization
-    private _check = [_pilotIndex, _aircraftType] call HANGAR_fnc_isPilotAvailableForAircraft;
+    private _check = [_pilotIndex, _type] call HANGAR_fnc_isPilotAvailableForAircraft;
     _check params ["_available", "_message"];
     
     if (!_available) exitWith {
         systemChat _message;
-        diag_log format ["Cannot assign pilot to aircraft: %1", _message];
+        diag_log format ["PILOT: Cannot assign to aircraft: %1", _message];
         false
     };
     
-    // Add pilot to aircraft crew
-    private _pilotAssignment = [_pilotIndex, _role, _turretPath];
+    // Add pilot to aircraft crew if not already there
+    private _existingCrewIndex = -1;
+    {
+        _x params ["_crewPilotIndex"];
+        if (_crewPilotIndex == _pilotIndex) exitWith {
+            _existingCrewIndex = _forEachIndex;
+        };
+    } forEach _crew;
     
-    // Update stored aircraft
-    private _crew = _record select 5;
-    _crew pushBack _pilotAssignment;
+    // If not already in crew, add
+    if (_existingCrewIndex == -1) then {
+        private _pilotAssignment = [_pilotIndex, _role, _turretPath];
+        _crew pushBack _pilotAssignment;
+    };
     
     systemChat format ["%1 assigned to %2", 
         (HANGAR_pilotRoster select _pilotIndex) select 0, 
-        (HANGAR_storedAircraft select _aircraftIndex) select 1
+        _displayName
     ];
     
-    diag_log format ["Successfully assigned pilot %1 to stored aircraft %2", 
+    diag_log format ["PILOT: Successfully assigned pilot %1 to stored aircraft %2", 
         (HANGAR_pilotRoster select _pilotIndex) select 0, 
-        (HANGAR_storedAircraft select _aircraftIndex) select 1
+        _displayName
     ];
     
     // Also update in viewed aircraft if this is the one being viewed
     if (!isNull HANGAR_viewedAircraft) then {
-        private _viewedIndex = HANGAR_selectedAircraftIndex;
+        private _viewedIndex = HANGAR_viewedAircraft getVariable ["HANGAR_storageIndex", -1];
         if (_viewedIndex == _aircraftIndex) then {
-            [_pilotIndex, HANGAR_viewedAircraft, _role, _turretPath] call HANGAR_fnc_assignPilotToAircraft;
+            [_pilotIndex, HANGAR_viewedAircraft, _role, _turretPath, false] call HANGAR_fnc_assignPilotToAircraft;
         };
+    };
+    
+    // Also update in deployed instance if deployed
+    if (_isDeployed && !isNull _deployedInstance) then {
+        [_pilotIndex, _deployedInstance, _role, _turretPath, true] call HANGAR_fnc_assignPilotToAircraft;
     };
     
     true
@@ -475,13 +535,17 @@ HANGAR_fnc_assignPilotToStoredAircraft = {
 HANGAR_fnc_returnPilotToRoster = {
     params ["_unit"];
     
-    if (isNull _unit) exitWith {false};
+    if (isNull _unit) exitWith {
+        diag_log "PILOT: Cannot return null unit to roster";
+        false
+    };
     
     // Get pilot index
     private _pilotIndex = _unit getVariable ["HANGAR_pilotIndex", -1];
     
     if (_pilotIndex < 0) exitWith {
         systemChat "Unit is not a managed pilot";
+        diag_log "PILOT: Unit is not a managed pilot";
         false
     };
     
@@ -493,15 +557,18 @@ HANGAR_fnc_returnPilotToRoster = {
     deleteVehicle _unit;
     
     systemChat format ["%1 has returned to the pilot roster", _name];
-    diag_log format ["Pilot %1 returned to roster", _name];
+    diag_log format ["PILOT: Returned to roster: %1", _name];
     true
 };
 
-// When an aircraft is stored, return all crew members to roster
+// Return all crew members from an aircraft to roster
 HANGAR_fnc_returnCrewToRoster = {
     params ["_aircraft"];
     
-    if (isNull _aircraft) exitWith {false};
+    if (isNull _aircraft) exitWith {
+        diag_log "PILOT: Cannot return crew from null aircraft";
+        false
+    };
     
     // Get all crew
     private _crew = crew _aircraft;
@@ -516,7 +583,38 @@ HANGAR_fnc_returnCrewToRoster = {
     true
 };
 
-
+// Add a sample set of test pilots
+HANGAR_fnc_addSamplePilots = {
+    // Don't add if pilots already exist
+    if (count HANGAR_pilotRoster > 0) exitWith {
+        diag_log "PILOT: Not adding sample pilots - roster not empty";
+    };
+    
+    // Add some sample pilots
+    for "_i" from 1 to 8 do {
+        private _rankIndex = floor(random 3);
+        private _name = format ["Pilot %1 %2", ["John", "William", "James", "Edward", "Henry", "George", "Charles", "Thomas"] select (_i-1),
+                               ["Smith", "Jones", "Brown", "Wilson", "Taylor", "Davies", "Evans", "Thomas"] select (_i-1)];
+        private _specializationList = ["Fighters", "Bombers", "Transport", "Recon"];
+        private _specialization = _specializationList select (floor(random (count _specializationList)));
+        
+        private _pilotData = [
+            _name,              // Name
+            _rankIndex,         // Rank index (random 0-2)
+            floor(random 10),   // Missions completed (random 0-9)
+            floor(random 5),    // Kills (random 0-4)
+            _specialization,    // Aircraft specialization
+            objNull             // Currently assigned aircraft (none)
+        ];
+        
+        // Add to roster
+        HANGAR_pilotRoster pushBack _pilotData;
+        diag_log format ["PILOT: Added sample pilot: %1 (%2)", _name, _specialization];
+    };
+    
+    systemChat format ["Added %1 sample pilots to roster", count HANGAR_pilotRoster];
+    diag_log "PILOT: Sample pilots added to roster";
+};
 
 // HANDLE ZEUS EDITABILITY FOR MANAGED OBJECTS
 // Create a repeating check to handle Zeus editability
@@ -526,7 +624,7 @@ HANGAR_fnc_returnCrewToRoster = {
     sleep 1;
     
     // Log that we're starting the monitor
-    diag_log "Starting Virtual Hangar Zeus editability monitor";
+    diag_log "PILOT: Starting Zeus editability monitor";
     
     // Continuous check
     while {true} do {
@@ -568,7 +666,7 @@ fnc_returnPilotToHangarRoster = {
 
 // Add global delete protection for all units marked as pilots
 [] spawn {
-    diag_log "Starting pilot protection watchdog";
+    diag_log "PILOT: Starting improved protection watchdog";
     
     while {true} do {
         {
@@ -580,24 +678,51 @@ fnc_returnPilotToHangarRoster = {
                     _x setVariable ["acex_headless_blacklist", true]; 
                     _x allowDamage false;
                     _x enableSimulationGlobal true;
-                    _x setCaptive true;
                     
                     // This is the key line that prevents automatic deletion
                     _x addEventHandler ["Deleted", {
                         params ["_unit"];
-                        diag_log format ["DELETION EVENT DETECTED for pilot: %1", _unit];
+                        diag_log format ["PILOT: DELETION EVENT DETECTED for pilot: %1", _unit];
                         systemChat format ["WARNING: Pilot %1 was deleted by the game engine", name _unit];
                     }];
                     
-                    diag_log format ["Applied special protection to pilot: %1", _x];
+                    diag_log format ["PILOT: Applied special protection to pilot: %1", _x];
                 };
                 
-                // If pilot is not in a vehicle, check for valid position
-                if (vehicle _x == _x) then {
-                    // Make sure pilot hasn't fallen through the terrain
+                // IMPORTANT: Check if this is a deployed aircraft pilot
+                private _inVehicle = vehicle _x != _x;
+                private _isDeployed = false;
+                
+                if (_inVehicle) then {
+                    private _veh = vehicle _x;
+                    _isDeployed = _veh getVariable ["HANGAR_deployed", false];
+                    
+                    // Only modify settings for deployed pilots to prevent messing with view models
+                    if (_isDeployed) then {
+                        // DON'T change any AI settings for deployed pilots here
+                        // Just make sure captive is false for deployed pilots
+                        if (_x getVariable ["HANGAR_viewModelPilot", false]) then {
+                            // This pilot was previously a view model pilot but is now deployed
+                            // Full enable their AI and mark them as not a view model
+                            _x setVariable ["HANGAR_viewModelPilot", false, true];
+                            _x setCaptive false;
+                            
+                            // Log this transition
+                            diag_log format ["PILOT: Watchdog detected pilot %1 transitioned from view to deployed", _x];
+                        };
+                    } else {
+                        // For view model pilots, ensure they stay captive and AI disabled
+                        if (!(_x getVariable ["HANGAR_viewModelPilot", false])) then {
+                            _x setVariable ["HANGAR_viewModelPilot", true, true];
+                        };
+                        
+                        _x setCaptive true;
+                    };
+                } else {
+                    // If pilot is not in a vehicle, check for valid position
                     private _pos = getPosATL _x;
                     if (_pos select 2 < -5) then {
-                        diag_log format ["Pilot %1 fell through terrain, repositioning", _x];
+                        diag_log format ["PILOT: Fell through terrain, repositioning: %1", _x];
                         _pos set [2, 0];
                         _x setPosATL _pos;
                     };
@@ -607,4 +732,10 @@ fnc_returnPilotToHangarRoster = {
         
         sleep 5;
     };
+};
+
+// Initialize sample pilots
+[] spawn {
+    sleep 5; // Wait a bit for other systems to initialize
+    [] call HANGAR_fnc_addSamplePilots;
 };

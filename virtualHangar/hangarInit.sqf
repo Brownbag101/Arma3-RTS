@@ -1,16 +1,16 @@
-// Virtual Hangar System - Initialization - COMPLETE REWRITE
+// Virtual Hangar System - Initialization
 // Initializes the Virtual Hangar system for aircraft management
 
 // === AIRCRAFT CONFIGURATION ===
-// Aircraft categories and types - ADJUST THESE VALUES TO CHANGE AVAILABLE AIRCRAFT
+// === GAMEPLAY VARIABLES - ADJUST THESE VALUES TO CHANGE AVAILABLE AIRCRAFT ===
 HANGAR_aircraftTypes = [
     ["Transport", [
         ["LIB_C47_RAF", "C-47 Dakota", 1] // [classname, display name, required crew]
     ]],
     ["Fighters", [
         ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
-		["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
-		["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
+        ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
+        ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
         ["sab_fl_spitfire_mk9", "Spitfire Mk.IX", 1]
     ]],
     ["Recon", [
@@ -21,6 +21,17 @@ HANGAR_aircraftTypes = [
     ]]
 ];
 
+// === PILOT RANKS CONFIGURATION ===
+// === GAMEPLAY VARIABLES - ADJUST THESE VALUES TO CHANGE RANK PROGRESSIONS ===
+HANGAR_pilotRanks = [
+    ["Pilot Officer", 0, 1.0],     // [rank name, min missions, skill multiplier]
+    ["Flying Officer", 5, 1.1],     
+    ["Flight Lieutenant", 10, 1.2], 
+    ["Squadron Leader", 20, 1.3],   
+    ["Wing Commander", 35, 1.4],    
+    ["Group Captain", 50, 1.5]      
+];
+
 // === HANGAR CONFIGURATION ===
 // Use markers for spawning positions
 HANGAR_planeSpawnMarker = "plane_spawn";  // Marker for plane viewing position
@@ -28,30 +39,31 @@ HANGAR_pilotSpawnMarker = "pilot_spawn";  // Marker for pilot spawn position
 
 // Debug marker existence
 if (markerType HANGAR_planeSpawnMarker == "") then {
-    diag_log "WARNING: plane_spawn marker not found!";
+    diag_log "INIT: WARNING: plane_spawn marker not found!";
     systemChat "WARNING: plane_spawn marker not found - using default position";
 } else {
-    diag_log format ["plane_spawn marker found at position: %1", getMarkerPos HANGAR_planeSpawnMarker];
+    diag_log format ["INIT: plane_spawn marker found at position: %1", getMarkerPos HANGAR_planeSpawnMarker];
 };
 
 if (markerType HANGAR_pilotSpawnMarker == "") then {
-    diag_log "WARNING: pilot_spawn marker not found!";
+    diag_log "INIT: WARNING: pilot_spawn marker not found!";
     systemChat "WARNING: pilot_spawn marker not found - using default position";
 } else {
-    diag_log format ["pilot_spawn marker found at position: %1", getMarkerPos HANGAR_pilotSpawnMarker];
+    diag_log format ["INIT: pilot_spawn marker found at position: %1", getMarkerPos HANGAR_pilotSpawnMarker];
 };
 
 // Calculate position and direction from markers
 HANGAR_viewPosition = if (markerType HANGAR_planeSpawnMarker != "") then {
     getMarkerPos HANGAR_planeSpawnMarker
 } else {
-    systemChat "WARNING: plane_spawn marker not found!";
+    diag_log "INIT: Using fallback position for aircraft viewing";
     [724.771, 12191.8, 0]  // Fallback position
 };
 
 HANGAR_viewDirection = if (markerType HANGAR_planeSpawnMarker != "") then {
     markerDir HANGAR_planeSpawnMarker
 } else {
+    diag_log "INIT: Using fallback direction for aircraft viewing";
     180  // Fallback direction
 };
 
@@ -65,7 +77,7 @@ HANGAR_pilotSpawnPosition = if (markerType HANGAR_pilotSpawnMarker != "") then {
     // Fallback - use a position near the plane spawn that's definitely safe
     private _fallbackPos = HANGAR_viewPosition vectorAdd [10, 10, 0];
     _fallbackPos set [2, 0];
-    systemChat "WARNING: pilot_spawn marker not found - using position near aircraft";
+    diag_log "INIT: Using fallback pilot spawn near aircraft";
     _fallbackPos
 };
 
@@ -96,156 +108,77 @@ HANGAR_deployPositions = [
     "hangar_deploy_5"
 ];
 
-// Check deploy markers too
+// Check deploy markers
 {
     if (markerType _x == "") then {
-        diag_log format ["WARNING: %1 marker not found!", _x];
-        systemChat format ["WARNING: %1 marker not found!", _x];
+        diag_log format ["INIT: WARNING: %1 marker not found!", _x];
+        systemChat format ["WARNING: %1 marker not found - aircraft deployment may not work correctly", _x];
     } else {
-        diag_log format ["Deploy marker %1 found at position: %2", _x, getMarkerPos _x];
+        diag_log format ["INIT: Deploy marker %1 found at position: %2", _x, getMarkerPos _x];
     };
 } forEach HANGAR_deployPositions;
 
-// Debug the position calculations
-diag_log format ["Final pilot spawn position: %1", HANGAR_pilotSpawnPosition];
-diag_log format ["Final plane view position: %1", HANGAR_viewPosition];
-
-// === GLOBAL VARIABLES ===
-if (isNil "HANGAR_storedAircraft") then { HANGAR_storedAircraft = []; };
-if (isNil "HANGAR_viewedAircraft") then { HANGAR_viewedAircraft = objNull; };
-if (isNil "HANGAR_selectedCategory") then { HANGAR_selectedCategory = ""; };
-if (isNil "HANGAR_uiControls") then { HANGAR_uiControls = []; };
-if (isNil "HANGAR_pilotRunning") then { HANGAR_pilotRunning = false; };
-// NEW: Track deployed aircraft separately
-if (isNil "HANGAR_deployedAircraft") then { HANGAR_deployedAircraft = []; };
-
-// === PILOT CONFIGURATION ===
-// Experience levels for pilots
-HANGAR_pilotRanks = [
-    ["Pilot Officer", 0, 1.0],     // [rank name, min missions, skill multiplier]
-    ["Flying Officer", 5, 1.1],     
-    ["Flight Lieutenant", 10, 1.2], 
-    ["Squadron Leader", 20, 1.3],   
-    ["Wing Commander", 35, 1.4],    
-    ["Group Captain", 50, 1.5]      
-];
-
-// Initialize pilot roster if not exists
-if (isNil "HANGAR_pilotRoster") then {
-    HANGAR_pilotRoster = []; // Empty roster - pilots will be added as needed
+// Initialize global variables
+if (isNil "HANGAR_storedAircraft") then { 
+    HANGAR_storedAircraft = []; 
+    diag_log "INIT: Created HANGAR_storedAircraft array";
 };
 
-// Log initialized positions
-diag_log format ["Virtual Hangar initialized with: Plane position: %1, Pilot position: %2, Camera position: %3", 
-    HANGAR_viewPosition, HANGAR_pilotSpawnPosition, HANGAR_cameraPosition];
+if (isNil "HANGAR_viewedAircraft") then { 
+    HANGAR_viewedAircraft = objNull; 
+    diag_log "INIT: Created HANGAR_viewedAircraft reference";
+};
+
+if (isNil "HANGAR_viewedAircraftArray") then { 
+    HANGAR_viewedAircraftArray = []; 
+    diag_log "INIT: Created HANGAR_viewedAircraftArray";
+};
+
+if (isNil "HANGAR_selectedCategory") then { 
+    HANGAR_selectedCategory = ""; 
+    diag_log "INIT: Created HANGAR_selectedCategory";
+};
+
+if (isNil "HANGAR_deployedAircraft") then { 
+    HANGAR_deployedAircraft = [];
+    diag_log "INIT: Created HANGAR_deployedAircraft array";
+};
+
+if (isNil "HANGAR_pilotRoster") then {
+    HANGAR_pilotRoster = []; 
+    diag_log "INIT: Created HANGAR_pilotRoster array";
+};
+
+// Create proper camera focus function if not already defined
+if (isNil "fnc_focusCameraOnAirfield") then {
+    fnc_focusCameraOnAirfield = {
+        // Move camera to the predefined camera position
+        if (!isNull curatorCamera) then {
+            private _camPos = HANGAR_cameraPosition;
+            private _targetPos = HANGAR_viewPosition;
+            
+            curatorCamera setPosASL [_camPos select 0, _camPos select 1, _camPos select 2];
+            curatorCamera setDir HANGAR_viewDirection;
+            
+            diag_log format ["CAMERA: Moved camera to %1 looking at %2", _camPos, _targetPos];
+        } else {
+            diag_log "CAMERA: No curator camera found";
+        };
+    };
+    
+    diag_log "INIT: Created focusCameraOnAirfield function";
+};
+
+// Debug the position calculations
+diag_log format ["INIT: Final configuration - View position: %1, Direction: %2, Camera: %3", 
+    HANGAR_viewPosition, HANGAR_viewDirection, HANGAR_cameraPosition];
 
 // Load all required modules
 [] execVM "scripts\virtualHangar\hangarSystem.sqf";
 [] execVM "scripts\virtualHangar\pilotSystem.sqf";
 [] execVM "scripts\virtualHangar\hangarUI.sqf";
 
-// Debug function to test pilot creation - FIXED VERSION
-HANGAR_fnc_testCreatePilot = {
-    diag_log "TESTING PILOT CREATION - FIXED VERSION...";
-    
-    // Create a simple test pilot data entry
-    if (count HANGAR_pilotRoster == 0) then {
-        HANGAR_pilotRoster pushBack [
-            "Test Pilot",     // Name
-            0,                // Rank
-            0,                // Missions
-            0,                // Kills
-            "Fighters",       // Specialization
-            objNull           // Aircraft assignment
-        ];
-        diag_log "Added test pilot to roster";
-    };
-    
-    // Log pilot spawn position
-    diag_log format ["Pilot spawn position: %1", HANGAR_pilotSpawnPosition];
-    
-    // Verify class existence first
-    if (!isClass (configFile >> "CfgVehicles" >> "sab_fl_pilot_green")) then {
-        systemChat "WARNING: sab_fl_pilot_green class not found in game configuration!";
-        diag_log "CRITICAL: sab_fl_pilot_green class does not exist - check addon dependencies";
-        
-        // Try with a fallback class that definitely exists
-        systemChat "Trying with fallback class 'B_Pilot_F'";
-        
-        private _side = side player;
-        private _group = createGroup [_side, true];
-        private _unit = _group createUnit ["B_Pilot_F", HANGAR_pilotSpawnPosition, [], 0, "NONE"];
-        
-        if (!isNull _unit) then {
-            _unit setName "TEST PILOT (FALLBACK)";
-            systemChat "Test pilot created with fallback class!";
-            diag_log format ["Test pilot created with fallback class at position: %1", getPos _unit];
-            
-            // Delete after 10 seconds
-            [_unit] spawn {
-                params ["_unit"];
-                sleep 10;
-                if (!isNull _unit) then {
-                    deleteVehicle _unit;
-                    systemChat "Test pilot removed";
-                };
-            };
-        } else {
-            systemChat "FAILED to create even fallback pilot!";
-            diag_log "CRITICAL FAILURE: Cannot create ANY pilot units - game environment issue";
-        };
-    } else {
-        // Class exists, so try to create it
-        private _side = side player;
-        private _group = createGroup [_side, true];
-        private _unit = objNull;
-        
-        // Try to create unit with more protection against deletion
-        if (isServer) then {
-            _unit = _group createUnit ["sab_fl_pilot_green", HANGAR_pilotSpawnPosition, [], 0, "CAN_COLLIDE"];
-        } else {
-            [_group, "sab_fl_pilot_green", HANGAR_pilotSpawnPosition, [], 0, "CAN_COLLIDE"] remoteExec ["bis_fnc_spawnUnit", 2];
-            sleep 1;
-            
-            // Find the newly created unit
-            {
-                if (_x getVariable ["HANGAR_isTestPilot", false]) exitWith {
-                    _unit = _x;
-                };
-            } forEach (nearestObjects [HANGAR_pilotSpawnPosition, ["Man"], 50]);
-        };
-        
-        if (!isNull _unit) then {
-            _unit setName "TEST PILOT";
-            _unit setVariable ["HANGAR_isTestPilot", true, true];
-            _unit allowDamage false;
-            _unit setCaptive true;
-            
-            // Add protection against cleanup/deletion
-            _unit setVariable ["BIS_enableRandomization", false, true];
-            _unit setVariable ["acex_headless_blacklist", true, true];
-            
-            systemChat "Test pilot created successfully!";
-            diag_log format ["Test pilot created at position: %1", getPos _unit];
-            
-            // Delete after 10 seconds
-            [_unit] spawn {
-                params ["_unit"];
-                sleep 10;
-                if (!isNull _unit) then {
-                    deleteVehicle _unit;
-                    systemChat "Test pilot removed";
-                } else {
-                    systemChat "Test pilot was already deleted by something!";
-                    diag_log "WARNING: Test pilot was deleted before cleanup time!";
-                };
-            };
-        } else {
-            systemChat "FAILED to create test pilot!";
-            diag_log "Failed to create test pilot unit - but class exists!";
-        };
-    };
-};
+diag_log "INIT: Loaded all Virtual Hangar modules";
 
 // Add to menu system if not already integrated
 if (!isNil "RTS_menuButtons") then {
@@ -262,27 +195,34 @@ if (!isNil "RTS_menuButtons") then {
         {
             if (_x select 0 == "placeholder1") exitWith {
                 RTS_menuButtons set [_forEachIndex, ["hangar", "a3\ui_f\data\igui\cfg\simpletasks\types\plane_ca.paa", "Virtual Hangar", "Manage aircraft and pilots"]];
+                diag_log "INIT: Added Virtual Hangar button to menu";
                 systemChat "Virtual Hangar button added to menu";
             };
         } forEach RTS_menuButtons;
     };
 };
 
-// NEW: Monitor deployed aircraft
+// Start monitoring deployed aircraft
 [] spawn {
-    // Wait for the function to be defined first
+    diag_log "INIT: Starting aircraft deployment monitoring...";
+    
+    // Initial cleanup of view models
+    sleep 5;
+    private _cleaned = [] call HANGAR_fnc_cleanupViewModels;
+    if (_cleaned > 0) then {
+        diag_log format ["INIT: Cleaned up %1 stray aircraft models at startup", _cleaned];
+    };
+    
+    // Wait for hangarSystem.sqf to fully load
     waitUntil {!isNil "HANGAR_fnc_monitorDeployedAircraft"};
     
-    // Log that monitoring is starting
-    diag_log "Starting aircraft deployment monitoring...";
-    
-    // Then start the monitoring loop
+    // Start the monitoring loop
     while {true} do {
         call HANGAR_fnc_monitorDeployedAircraft;
-        sleep 30; // Check every 30 seconds
+        sleep 30;
     };
 };
 
-// Test function available but not automatically called
-systemChat "Virtual Hangar system initialized - test function available";
-diag_log "Virtual Hangar initialized - call HANGAR_fnc_testCreatePilot manually if testing is needed";
+// Log completion of initialization
+systemChat "Virtual Hangar system initialized";
+diag_log "INIT: Virtual Hangar system initialization complete";

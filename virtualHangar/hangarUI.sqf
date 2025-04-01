@@ -1,33 +1,26 @@
-// Virtual Hangar System - User Interface - COMPLETE REWRITE
+// Virtual Hangar System - User Interface
 // Handles creation and management of the Virtual Hangar UI
 
 // Initialize variables
 HANGAR_selectedAircraftIndex = -1;
 HANGAR_selectedPilotIndex = -1;
+HANGAR_selectedDeployPosIndex = -1;
 HANGAR_assigningPilot = false;
 HANGAR_uiControls = [];
 
-// Create a force close function at the global level (add this before any other functions)
+// Create a force close function at the global level
 HANGAR_fnc_forceCloseAllUI = {
     // Force deletion of all custom UI elements
     disableSerialization;
     
     // Log what we're doing
-    diag_log "FORCE CLOSING ALL HANGAR UI ELEMENTS";
+    diag_log "UI: Force closing all hangar UI elements";
     
-    // Get all displays
-    private _allDisplays = allDisplays;
-    
-    // Find Zeus display
-    private _zeusDisplay = displayNull;
-    {
-        if (str _x == "Display #312") exitWith {
-            _zeusDisplay = _x;
-        };
-    } forEach _allDisplays;
+    // Get Zeus display
+    private _zeusDisplay = findDisplay 312;
     
     if (isNull _zeusDisplay) exitWith {
-        diag_log "No Zeus display found to clean UI";
+        diag_log "UI: No Zeus display found to clean UI";
         false
     };
     
@@ -39,14 +32,16 @@ HANGAR_fnc_forceCloseAllUI = {
         private _control = _zeusDisplay displayCtrl _x;
         if (!isNull _control) then {
             ctrlDelete _control;
-            diag_log format ["Deleted UI control %1", _x];
+            diag_log format ["UI: Deleted control %1", _x];
         };
     } forEach _controlIDs;
     
     // Force reset UI flags
     HANGAR_assigningPilot = false;
+    HANGAR_selectedPilotIndex = -1;
+    HANGAR_selectedDeployPosIndex = -1;
     
-    // Clean up controls array too
+    // Clean up controls array
     HANGAR_uiControls = HANGAR_uiControls - [objNull];
     
     true
@@ -54,27 +49,23 @@ HANGAR_fnc_forceCloseAllUI = {
 
 // Function to open the Virtual Hangar UI
 HANGAR_fnc_openUI = {
-	
-	// Clean up any stray view models from previous sessions
-	if (!isNil "HANGAR_fnc_cleanupViewModels") then {
-		private _cleaned = [] call HANGAR_fnc_cleanupViewModels;
-		if (_cleaned > 0) then {
-			systemChat format ["Cleaned up %1 stray aircraft models", _cleaned];
-		};
-	} else {
-		diag_log "WARNING: HANGAR_fnc_cleanupViewModels not defined yet";
-};
-	
+    // Clean up any stray view models from previous sessions
+    private _cleaned = [] call HANGAR_fnc_cleanupViewModels;
+    if (_cleaned > 0) then {
+        systemChat format ["Cleaned up %1 stray aircraft models", _cleaned];
+    };
+    
     // Store original camera position if needed
     if (isNull curatorCamera) exitWith {
         systemChat "Zeus camera not active";
+        diag_log "UI: Cannot open - Zeus camera not active";
     };
     
     // Store current camera position
     HANGAR_originalCamPos = getPosASL curatorCamera;
     HANGAR_originalCamDir = vectorDir curatorCamera;
     
-    diag_log format ["Stored original camera position: %1, dir: %2", HANGAR_originalCamPos, HANGAR_originalCamDir];
+    diag_log format ["UI: Stored original camera position: %1, dir: %2", HANGAR_originalCamPos, HANGAR_originalCamDir];
     
     // Make sure any UI panels are closed first
     call HANGAR_fnc_forceCloseAllUI;
@@ -82,11 +73,11 @@ HANGAR_fnc_openUI = {
     // Move camera to view the hangar area
     [] call fnc_focusCameraOnAirfield;
     
-    // Clear any viewed aircraft properly (but don't delete deployed ones)
-    call HANGAR_fnc_clearViewedAircraft;
+    // Clear any viewed aircraft properly
+    call HANGAR_fnc_clearAllViewedAircraft;
     
-    // Get the Zeus display and create UI on top
-    HANGAR_display = findDisplay 312; // Use the Zeus display
+    // Get the Zeus display
+    HANGAR_display = findDisplay 312;
     
     // Initialize UI elements
     call HANGAR_fnc_createCustomUI;
@@ -98,7 +89,7 @@ HANGAR_fnc_openUI = {
     };
     
     systemChat "Virtual Hangar opened";
-    diag_log "Virtual Hangar UI opened";
+    diag_log "UI: Virtual Hangar UI opened";
 };
 
 // Function to close the UI
@@ -106,8 +97,8 @@ HANGAR_fnc_closeUI = {
     // Make sure all UI panels are closed first
     call HANGAR_fnc_forceCloseAllUI;
     
-    // Clear viewed aircraft properly (but don't delete deployed ones)
-    call HANGAR_fnc_clearViewedAircraft;
+    // Clear viewed aircraft properly
+    call HANGAR_fnc_clearAllViewedAircraft;
     
     // Restore original camera position
     if (!isNil "HANGAR_originalCamPos") then {
@@ -118,7 +109,7 @@ HANGAR_fnc_closeUI = {
         HANGAR_originalCamPos = nil;
         HANGAR_originalCamDir = nil;
         
-        diag_log "Restored original camera position";
+        diag_log "UI: Restored original camera position";
     };
     
     // Clean up controls
@@ -129,18 +120,14 @@ HANGAR_fnc_closeUI = {
     HANGAR_uiControls = [];
     
     systemChat "Virtual Hangar closed";
-    diag_log "Virtual Hangar UI closed";
-};
-
-// Clean up any stray view models from previous sessions
-private _cleaned = [] call HANGAR_fnc_cleanupViewModels;
-if (_cleaned > 0) then {
-    systemChat format ["Cleaned up %1 stray aircraft models", _cleaned];
+    diag_log "UI: Virtual Hangar UI closed";
 };
 
 // Function to create the main UI elements
 HANGAR_fnc_createCustomUI = {
-    if (isNull HANGAR_display) exitWith {};
+    if (isNull HANGAR_display) exitWith {
+        diag_log "UI: Cannot create - display is null";
+    };
     
     // Clear any existing controls
     {
@@ -184,7 +171,7 @@ HANGAR_fnc_createCustomUI = {
         private _categoryData = HANGAR_aircraftTypes select _i;
         private _categoryName = _categoryData select 0;
         
-        // Create button directly - no need for control group
+        // Create button directly
         private _button = HANGAR_display ctrlCreate ["RscButton", 9810 + _i];
         _button ctrlSetPosition [
             _startX + (_i * _buttonWidth),
@@ -243,6 +230,7 @@ HANGAR_fnc_createCustomUI = {
     _infoPanel ctrlCommit 0;
     HANGAR_uiControls pushBack _infoPanel;
     
+    // === GAMEPLAY VARIABLES - ADJUST THESE VALUES TO CHANGE BUTTON POSITIONS AND SIZES ===
     // Create action buttons (bottom)
     private _buttonY = safezoneY + (safezoneH * 0.85);
     private _buttonH = safezoneH * 0.06;
@@ -352,6 +340,8 @@ HANGAR_fnc_createCustomUI = {
     
     // Update aircraft list
     call HANGAR_fnc_updateAircraftList;
+    
+    diag_log "UI: Custom UI created";
 };
 
 // Function to update category button highlighting
@@ -372,30 +362,21 @@ HANGAR_fnc_updateCategoryButtons = {
 
 // Function to update aircraft list based on selected category
 HANGAR_fnc_updateAircraftList = {
-    // Clear list
+    // Get the list control
     private _listbox = HANGAR_display displayCtrl 9802;
+    
+    // Clear list
     lbClear _listbox;
     
     // Find aircraft of the selected category
     private _categoryAircraft = [];
     
     // Log the current state for debugging
-    diag_log format ["Updating aircraft list. Category: %1, Total stored: %2", HANGAR_selectedCategory, count HANGAR_storedAircraft];
+    diag_log format ["UI: Updating aircraft list. Category: %1, Total stored: %2", HANGAR_selectedCategory, count HANGAR_storedAircraft];
     
-    // NEW: Check for deployed aircraft of this category that aren't in storage
-    private _deployedTypes = [];
+    // Process stored aircraft
     {
-        if (!isNull _x) then {
-            private _storageIndex = _x getVariable ["HANGAR_storageIndex", -1];
-            if (_storageIndex >= 0) then {
-                _deployedTypes pushBack [typeOf _x, _storageIndex, _x];
-            };
-        };
-    } forEach HANGAR_deployedAircraft;
-    
-    // Process stored aircraft first
-    {
-        _x params ["_type", "_displayName"];
+        _x params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew", "_customData", "_isDeployed"];
         
         // Find category for this aircraft type
         private _category = "";
@@ -413,8 +394,8 @@ HANGAR_fnc_updateAircraftList = {
         
         // If category matches, add to filtered list
         if (_category == HANGAR_selectedCategory) then {
-            _categoryAircraft pushBack [_forEachIndex, _displayName, false]; // false = not deployed
-            diag_log format ["Adding aircraft to list: %1 (index: %2, stored)", _displayName, _forEachIndex];
+            _categoryAircraft pushBack [_forEachIndex, _displayName, _isDeployed];
+            diag_log format ["UI: Adding aircraft to list: %1 (index: %2, deployed: %3)", _displayName, _forEachIndex, _isDeployed];
         };
     } forEach HANGAR_storedAircraft;
     
@@ -463,7 +444,7 @@ HANGAR_fnc_updateAircraftList = {
     
     // Reset selection
     HANGAR_selectedAircraftIndex = -1;
-    call HANGAR_fnc_clearViewedAircraft;
+    call HANGAR_fnc_clearAllViewedAircraft;
     call HANGAR_fnc_updateAircraftInfo;
     call HANGAR_fnc_updateActionButtonStates;
 };
@@ -478,7 +459,7 @@ HANGAR_fnc_updateAircraftInfo = {
     } else {
         // Get aircraft data
         private _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
-        _record params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew"];
+        _record params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew", "_customData", "_isDeployed", "_deployedInstance"];
         
         // Format weapons text
         private _weaponsText = "";
@@ -524,19 +505,8 @@ HANGAR_fnc_updateAircraftInfo = {
         private _crewStatusText = format ["%1/%2", count _crew, _requiredCrew];
         private _crewStatusColor = if (count _crew >= _requiredCrew) then {"#8cff9b"} else {"#ff8c8c"};
         
-        // NEW: Check if aircraft is deployed
+        // Deployment status text
         private _deployedText = "";
-        private _isDeployed = false;
-        
-        {
-            if (!isNull _x) then {
-                private _storedIndex = _x getVariable ["HANGAR_storageIndex", -1];
-                if (_storedIndex == HANGAR_selectedAircraftIndex) exitWith {
-                    _isDeployed = true;
-                };
-            };
-        } forEach HANGAR_deployedAircraft;
-        
         if (_isDeployed) then {
             _deployedText = "<t color='#8cff9b' size='1.2'>AIRCRAFT DEPLOYED</t><br/>";
         };
@@ -590,7 +560,22 @@ HANGAR_fnc_updateActionButtonStates = {
     if (_hasSelection) then {
         // Check if aircraft has required crew
         private _canDeploy = [HANGAR_selectedAircraftIndex] call HANGAR_fnc_isAircraftFullyCrewed;
-        _deployBtn ctrlEnable _canDeploy;
+        
+        // Get deployment status
+        private _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
+        private _isDeployed = _record select 7;
+        
+        // Can deploy if fully crewed or already deployed (to move it)
+        _deployBtn ctrlEnable (_canDeploy || _isDeployed);
+        
+        // Update button text for deployed aircraft
+        if (_isDeployed) then {
+            _deployBtn ctrlSetText "Reposition";
+            _deployBtn ctrlSetTooltip "Move the deployed aircraft to a new position";
+        } else {
+            _deployBtn ctrlSetText "Deploy";
+            _deployBtn ctrlSetTooltip "Deploy the aircraft to a position on the airfield";
+        };
     };
 };
 
@@ -612,7 +597,7 @@ HANGAR_fnc_initializeActionButtons = {
     
     // Assign pilot button
     _assignPilotBtn ctrlAddEventHandler ["ButtonClick", {
-        diag_log "Assign Pilot button clicked";
+        diag_log "UI: Assign Pilot button clicked";
         
         if (HANGAR_selectedAircraftIndex >= 0) then {
             call HANGAR_fnc_openPilotSelectionUI;
@@ -654,16 +639,24 @@ HANGAR_fnc_initializeActionButtons = {
     // Deploy button
     _deployBtn ctrlAddEventHandler ["ButtonClick", {
         if (HANGAR_selectedAircraftIndex >= 0) then {
-            // Check if aircraft has required crew
-            if ([HANGAR_selectedAircraftIndex] call HANGAR_fnc_isAircraftFullyCrewed) then {
-                call HANGAR_fnc_openDeployPositionUI;
+            // Get current record
+            private _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
+            private _isDeployed = _record select 7;
+            
+            if (!_isDeployed) then {
+                // Not yet deployed - check crew requirements first
+                if ([HANGAR_selectedAircraftIndex] call HANGAR_fnc_isAircraftFullyCrewed) then {
+                    call HANGAR_fnc_openDeployPositionUI;
+                } else {
+                    private _type = _record select 0;
+                    private _required = [_type] call HANGAR_fnc_getRequiredCrew;
+                    private _current = count (_record select 5);
+                    
+                    systemChat format ["Aircraft needs %1 crew members, but only has %2", _required, _current];
+                };
             } else {
-                private _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
-                private _type = _record select 0;
-                private _required = [_type] call HANGAR_fnc_getRequiredCrew;
-                private _current = count (_record select 5);
-                
-                systemChat format ["Aircraft needs %1 crew members, but only has %2", _required, _current];
+                // Already deployed - just move it
+                call HANGAR_fnc_openDeployPositionUI;
             };
         } else {
             systemChat "You must select an aircraft first";
@@ -673,52 +666,32 @@ HANGAR_fnc_initializeActionButtons = {
     // Disable action buttons initially
     call HANGAR_fnc_updateActionButtonStates;
     
-    diag_log "Action buttons initialized";
+    diag_log "UI: Action buttons initialized";
 };
 
-// Function to open pilot selection UI - COMPLETELY REWRITTEN
+// Function to open pilot selection UI
 HANGAR_fnc_openPilotSelectionUI = {
     if (isNull HANGAR_display) exitWith {
         systemChat "Display not found";
+        diag_log "UI: Cannot open pilot selection - display not found";
     };
     
     // Ensure any previous pilots UIs are closed first
     call HANGAR_fnc_closePilotSelectionUI;
     
     // Log aircraft selection for debugging
-    diag_log format ["Opening pilot selection UI. Selected aircraft index: %1", HANGAR_selectedAircraftIndex];
+    diag_log format ["UI: Opening pilot selection UI. Selected aircraft index: %1", HANGAR_selectedAircraftIndex];
     
     // Ensure we have a valid aircraft selected
     if (HANGAR_selectedAircraftIndex < 0 || HANGAR_selectedAircraftIndex >= count HANGAR_storedAircraft) exitWith {
         systemChat "No valid aircraft selected";
-        diag_log "Cannot open pilot UI: No valid aircraft selected";
+        diag_log "UI: Cannot open pilot UI: No valid aircraft selected";
     };
     
     // Ensure we have some pilots to assign
     if (count HANGAR_pilotRoster == 0) then {
         // Add some sample pilots if none exist
-        for "_i" from 1 to 8 do {
-            private _rankIndex = floor(random 3);
-            private _name = format ["Pilot %1 %2", ["John", "William", "James", "Edward", "Henry", "George", "Charles", "Thomas"] select (_i-1),
-                                   ["Smith", "Jones", "Brown", "Wilson", "Taylor", "Davies", "Evans", "Thomas"] select (_i-1)];
-            private _specializationList = ["Fighters", "Bombers", "Transport", "Recon"];
-            private _specialization = _specializationList select (floor(random (count _specializationList)));
-            
-            private _pilotData = [
-                _name,              // Name
-                _rankIndex,         // Rank index (random 0-2)
-                floor(random 10),   // Missions completed (random 0-9)
-                floor(random 5),    // Kills (random 0-4)
-                _specialization,    // Aircraft specialization
-                objNull             // Currently assigned aircraft (none)
-            ];
-            
-            // Add to roster
-            HANGAR_pilotRoster pushBack _pilotData;
-        };
-        
-        systemChat "Created sample pilots";
-        diag_log "Created sample pilots in roster";
+        call HANGAR_fnc_addSamplePilots;
     };
     
     // Get aircraft type to check specialization
@@ -734,7 +707,7 @@ HANGAR_fnc_openPilotSelectionUI = {
             _x params ["_className"];
             if (_className == _aircraftType) exitWith {
                 _aircraftCategory = _category;
-                diag_log format ["Found category %1 for aircraft type %2", _category, _aircraftType];
+                diag_log format ["UI: Found category %1 for aircraft type %2", _category, _aircraftType];
             };
         } forEach _aircraftList;
         
@@ -789,11 +762,11 @@ HANGAR_fnc_openPilotSelectionUI = {
         // Check if pilot is not assigned and specialization matches (or is blank)
         if (isNull _aircraft && (_specialization == _aircraftCategory || _aircraftCategory == "")) then {
             _availablePilots pushBack _forEachIndex;
-            diag_log format ["Found available pilot: %1 with specialization %2", _name, _specialization];
+            diag_log format ["UI: Found available pilot: %1 with specialization %2", _name, _specialization];
         };
     } forEach HANGAR_pilotRoster;
     
-    diag_log format ["Found %1 available pilots for aircraft category %2", count _availablePilots, _aircraftCategory];
+    diag_log format ["UI: Found %1 available pilots for aircraft category %2", count _availablePilots, _aircraftCategory];
     
     if (count _availablePilots == 0) then {
         _listbox lbAdd "No available pilots with matching specialization";
@@ -847,7 +820,7 @@ HANGAR_fnc_openPilotSelectionUI = {
         if (_selectedIndex >= 0) then {
             private _data = _control lbData _selectedIndex;
             HANGAR_selectedPilotIndex = parseNumber _data;
-            diag_log format ["Selected pilot index: %1", HANGAR_selectedPilotIndex];
+            diag_log format ["UI: Selected pilot index: %1", HANGAR_selectedPilotIndex];
         };
     }];
     
@@ -869,14 +842,14 @@ HANGAR_fnc_openPilotSelectionUI = {
             // Double check aircraft index is valid
             if (HANGAR_selectedAircraftIndex >= 0 && HANGAR_selectedAircraftIndex < count HANGAR_storedAircraft) then {
                 // Log the assignment for debugging
-                diag_log format ["Confirming pilot assignment. Pilot: %1, Aircraft: %2", 
+                diag_log format ["UI: Confirming pilot assignment. Pilot: %1, Aircraft: %2", 
                     HANGAR_selectedPilotIndex, HANGAR_selectedAircraftIndex];
                 
                 // Assign pilot to aircraft
                 [HANGAR_selectedPilotIndex, HANGAR_selectedAircraftIndex] call HANGAR_fnc_assignPilotToStoredAircraft;
             } else {
                 systemChat "Invalid aircraft selection";
-                diag_log format ["Invalid aircraft index: %1", HANGAR_selectedAircraftIndex];
+                diag_log format ["UI: Invalid aircraft index: %1", HANGAR_selectedAircraftIndex];
             };
         } else {
             systemChat "No pilot selected";
@@ -915,10 +888,10 @@ HANGAR_fnc_openPilotSelectionUI = {
         _listbox lbSetCurSel 0;
     };
     
-    diag_log "Opened pilot selection UI";
+    diag_log "UI: Opened pilot selection UI";
 };
 
-// Function to close pilot selection UI - COMPLETELY REWRITTEN
+// Function to close pilot selection UI
 HANGAR_fnc_closePilotSelectionUI = {
     // Call the global force close function
     call HANGAR_fnc_forceCloseAllUI;
@@ -929,16 +902,17 @@ HANGAR_fnc_closePilotSelectionUI = {
         private _overlay = _display displayCtrl 9820;
         if (!isNull _overlay) then {
             ctrlDelete _overlay;
-            diag_log "Deleted pilot selection overlay specifically";
+            diag_log "UI: Deleted pilot selection overlay specifically";
         };
     };
     
     // Reset flag
     HANGAR_assigningPilot = false;
-    diag_log "Closed pilot selection UI - flags reset";
+    HANGAR_selectedPilotIndex = -1;
+    diag_log "UI: Closed pilot selection UI - flags reset";
 };
 
-// Function to open deploy position selection UI - COMPLETELY REWRITTEN
+// Function to open deploy position selection UI
 HANGAR_fnc_openDeployPositionUI = {
     // Ensure any previous deploy UIs are closed first
     call HANGAR_fnc_closeDeployPositionUI;
@@ -1007,8 +981,8 @@ HANGAR_fnc_openDeployPositionUI = {
         
         if (_selectedIndex >= 0) then {
             private _data = _control lbData _selectedIndex;
-            private _positionIndex = parseNumber _data;
-            diag_log format ["Selected deploy position index: %1", _positionIndex];
+            HANGAR_selectedDeployPosIndex = parseNumber _data;
+            diag_log format ["UI: Selected deploy position index: %1", HANGAR_selectedDeployPosIndex];
         };
     }];
     
@@ -1024,31 +998,29 @@ HANGAR_fnc_openDeployPositionUI = {
     _confirmBtn ctrlSetBackgroundColor [0.4, 0.4, 0.2, 0.8];
     _confirmBtn ctrlCommit 0;
     
+    // Get current aircraft record to update button text if repositioning
+    private _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
+    private _isDeployed = _record select 7;
+    
+    if (_isDeployed) then {
+        _confirmBtn ctrlSetText "REPOSITION";
+    } else {
+        _confirmBtn ctrlSetText "DEPLOY";
+    };
+    
     // Confirm button action
     _confirmBtn ctrlAddEventHandler ["ButtonClick", {
-        private _listbox = HANGAR_display displayCtrl 9831;
-        private _selectedIndex = lbCurSel _listbox;
-        
-        if (_selectedIndex >= 0) then {
-            private _data = _listbox lbData _selectedIndex;
-            private _positionIndex = parseNumber _data;
+        if (HANGAR_selectedDeployPosIndex >= 0) then {
+            // Deploy aircraft
+            [HANGAR_selectedAircraftIndex, HANGAR_selectedDeployPosIndex] call HANGAR_fnc_deployAircraft;
             
-            if (_positionIndex >= 0) then {
-                // Deploy aircraft
-                [HANGAR_selectedAircraftIndex, _positionIndex] call HANGAR_fnc_deployAircraft;
-                
-                // Close deploy position selection
-                call HANGAR_fnc_closeDeployPositionUI;
-                
-                // Clear the selection and update UI
-                HANGAR_selectedAircraftIndex = -1;
-                call HANGAR_fnc_clearViewedAircraft;
-                call HANGAR_fnc_updateAircraftList;
-                call HANGAR_fnc_updateAircraftInfo;
-                call HANGAR_fnc_updateActionButtonStates;
-            } else {
-                systemChat "Invalid deploy position";
-            };
+            // Close deploy position selection
+            call HANGAR_fnc_closeDeployPositionUI;
+            
+            // Update UI
+            call HANGAR_fnc_updateAircraftList;
+            call HANGAR_fnc_updateAircraftInfo;
+            call HANGAR_fnc_updateActionButtonStates;
         } else {
             systemChat "You must select a deploy position first";
         };
@@ -1076,10 +1048,10 @@ HANGAR_fnc_openDeployPositionUI = {
         _listbox lbSetCurSel 0;
     };
     
-    diag_log "Opened deploy position UI";
+    diag_log "UI: Opened deploy position UI";
 };
 
-// Function to close deploy position UI - COMPLETELY REWRITTEN
+// Function to close deploy position UI
 HANGAR_fnc_closeDeployPositionUI = {
     // Call the global force close function
     call HANGAR_fnc_forceCloseAllUI;
@@ -1090,11 +1062,12 @@ HANGAR_fnc_closeDeployPositionUI = {
         private _overlay = _display displayCtrl 9830;
         if (!isNull _overlay) then {
             ctrlDelete _overlay;
-            diag_log "Deleted deploy position overlay specifically";
+            diag_log "UI: Deleted deploy position overlay specifically";
         };
     };
     
-    diag_log "Closed deploy position UI - flags reset";
+    HANGAR_selectedDeployPosIndex = -1;
+    diag_log "UI: Closed deploy position UI";
 };
 
 // Register the Virtual Hangar function for the menu system
