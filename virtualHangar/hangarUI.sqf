@@ -143,7 +143,7 @@ HANGAR_fnc_createCustomUI = {
         safezoneW,
         safezoneH
     ];
-    _background ctrlSetBackgroundColor [0, 0, 0, 0.5]; // Less dark background
+    _background ctrlSetBackgroundColor [0, 0, 0, 0]; // Less dark background
     _background ctrlCommit 0;
     HANGAR_uiControls pushBack _background;
     

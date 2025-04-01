@@ -146,49 +146,26 @@ private _existingCount = 0;
                 _weaponsData pushBack [_weapon, _ammo, _weaponName];
             } forEach _weapons;
             
-            // PROPERLY DETERMINE AIRCRAFT SPECIALIZATION based on type
-            private _specialization = "Fighters"; // Default if not found
-            private _found = false;
-            
-            // Search all aircraft categories
-            {
-                _x params ["_category", "_aircraftList"];
-                
-                // Search for this aircraft type in each category's list
-                {
-                    _x params ["_className"];
-                    if (_className == _type) exitWith {
-                        _specialization = _category;
-                        _found = true;
-                    };
-                } forEach _aircraftList;
-                
-                // Exit if found
-                if (_found) exitWith {
-                    diag_log format ["RECOVERY: Found aircraft type %1 in category %2", _type, _specialization];
-                };
-            } forEach HANGAR_aircraftTypes;
-            
-            if (!_found) then {
-                // If type not found in any category, try to make an intelligent guess
-                if (_type find "C47" >= 0 || _type find "DC3" >= 0 || _type find "Dakota" >= 0) then {
-                    _specialization = "Transport";
-                } else {
-                    if (_type find "halifax" >= 0 || _type find "lancaster" >= 0 || _type find "B17" >= 0) then {
-                        _specialization = "Bombers";
-                    } else {
-                        if (_type find "spitfire" >= 0 || _type find "hurricane" >= 0 || _type find "bf109" >= 0) then {
-                            _specialization = "Fighters";
-                        } else {
-                            if (_type find "mosquito" >= 0 || _type find "lysander" >= 0) then {
-                                _specialization = "Recon";
-                            };
-                        };
-                    };
-                };
-                
-                diag_log format ["RECOVERY: Guessed aircraft type %1 is category %2", _type, _specialization];
-            };
+            // Determine aircraft category using the central function
+_specialization = [_type] call HANGAR_fnc_determineAircraftCategory;
+diag_log format ["RECOVERY: Determined category %1 for aircraft type %2", _specialization, _type];
+
+// Get aircraft data from master list
+private _aircraftInfo = [_type] call HANGAR_fnc_findAircraftInMasterList;
+
+// Set display name and crew count from master list if available
+if (count _aircraftInfo > 0) then {
+    _aircraftInfo params ["_className", "_masterDisplayName", "_masterCrewCount"];
+    
+    // Use master list data (it's more accurate)
+    _displayName = _masterDisplayName;
+    
+    // Add to HANGAR_aircraftTypes if not already there
+    [_type, _displayName, _masterCrewCount] call HANGAR_fnc_addAircraftToTypes;
+} else {
+    // Not in master list, add with guessed category
+    [_type, _displayName, 1] call HANGAR_fnc_addAircraftToTypes;
+};
             
             // CRUCIAL: Get crew members out of vehicle
             {

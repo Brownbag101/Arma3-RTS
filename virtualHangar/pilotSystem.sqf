@@ -583,38 +583,7 @@ HANGAR_fnc_returnCrewToRoster = {
     true
 };
 
-// Add a sample set of test pilots
-HANGAR_fnc_addSamplePilots = {
-    // Don't add if pilots already exist
-    if (count HANGAR_pilotRoster > 0) exitWith {
-        diag_log "PILOT: Not adding sample pilots - roster not empty";
-    };
-    
-    // Add some sample pilots
-    for "_i" from 1 to 8 do {
-        private _rankIndex = floor(random 3);
-        private _name = format ["Pilot %1 %2", ["John", "William", "James", "Edward", "Henry", "George", "Charles", "Thomas"] select (_i-1),
-                               ["Smith", "Jones", "Brown", "Wilson", "Taylor", "Davies", "Evans", "Thomas"] select (_i-1)];
-        private _specializationList = ["Fighters", "Bombers", "Transport", "Recon"];
-        private _specialization = _specializationList select (floor(random (count _specializationList)));
-        
-        private _pilotData = [
-            _name,              // Name
-            _rankIndex,         // Rank index (random 0-2)
-            floor(random 10),   // Missions completed (random 0-9)
-            floor(random 5),    // Kills (random 0-4)
-            _specialization,    // Aircraft specialization
-            objNull             // Currently assigned aircraft (none)
-        ];
-        
-        // Add to roster
-        HANGAR_pilotRoster pushBack _pilotData;
-        diag_log format ["PILOT: Added sample pilot: %1 (%2)", _name, _specialization];
-    };
-    
-    systemChat format ["Added %1 sample pilots to roster", count HANGAR_pilotRoster];
-    diag_log "PILOT: Sample pilots added to roster";
-};
+
 
 // HANDLE ZEUS EDITABILITY FOR MANAGED OBJECTS
 // Create a repeating check to handle Zeus editability
@@ -734,8 +703,3 @@ fnc_returnPilotToHangarRoster = {
     };
 };
 
-// Initialize sample pilots
-[] spawn {
-    sleep 5; // Wait a bit for other systems to initialize
-    [] call HANGAR_fnc_addSamplePilots;
-};

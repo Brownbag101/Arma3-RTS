@@ -1,23 +1,147 @@
 // Virtual Hangar System - Initialization
 // Initializes the Virtual Hangar system for aircraft management
 
+// === GLOBAL AIRCRAFT MASTER LIST ===
+// === GAMEPLAY VARIABLES - ADD NEW AIRCRAFT TYPES HERE ===
+HANGAR_masterAircraftList = [
+    // Transport aircraft
+    ["LIB_C47_RAF", "C-47 Dakota", 1, "Transport"],
+    ["LIB_Li2", "Li-2", 1, "Transport"],
+    ["LIB_CG4_WACO", "WACO CG-4", 1, "Transport"],
+    
+    // Fighter aircraft
+    ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1, "Fighters"],
+    ["sab_fl_spitfire_mk9", "Spitfire Mk.IX", 1, "Fighters"],
+    ["sab_fl_hurricane_2", "Hurricane Mk.II", 1, "Fighters"],
+    ["sab_fl_hurricane_11b", "Hurricane Mk.IIb", 1, "Fighters"],
+    ["LIB_RAF_P39", "P-39 Airacobra", 1, "Fighters"],
+    ["LIB_RAAF_P39", "RAAF P-39", 1, "Fighters"],
+    
+    // Reconnaissance aircraft
+    ["sab_fl_dh98", "Mosquito", 2, "Recon"],
+    ["LIB_FW189", "Fw 189", 2, "Recon"],
+    ["LIB_Pe2", "Pe-2", 2, "Recon"],
+    
+    // Bomber aircraft
+    ["sab_sw_halifax", "Halifax", 5, "Bombers"],
+    ["LIB_B17F", "B-17F", 7, "Bombers"],
+    ["LIB_B_17G", "B-17G", 7, "Bombers"],
+    ["LIB_B25", "B-25 Mitchell", 5, "Bombers"],
+    ["LIB_Lancaster_B3", "Lancaster B.III", 7, "Bombers"]
+];
+
+// Function to find aircraft data in the master list
+HANGAR_fnc_findAircraftInMasterList = {
+    params ["_className"];
+    
+    private _result = [];
+    
+    {
+        _x params ["_class", "_displayName", "_crewCount", "_category"];
+        
+        if (_class == _className) exitWith {
+            _result = _x;
+        };
+    } forEach HANGAR_masterAircraftList;
+    
+    _result
+};
+
+// Function to determine aircraft category from class name
+HANGAR_fnc_determineAircraftCategory = {
+    params ["_className"];
+    
+    // First try to find in master list
+    private _aircraftInfo = [_className] call HANGAR_fnc_findAircraftInMasterList;
+    
+    if (count _aircraftInfo > 0) then {
+        // Return category from master list
+        _aircraftInfo select 3
+    } else {
+        // Fallback to name-based detection
+        private _category = "Fighters"; // Default
+        
+        if (_className find "C47" >= 0 || _className find "DC3" >= 0 || _className find "Dakota" >= 0 || _className find "Li2" >= 0) then {
+            _category = "Transport";
+        } else {
+            if (_className find "halifax" >= 0 || _className find "lancaster" >= 0 || _className find "B17" >= 0 || _className find "B25" >= 0) then {
+                _category = "Bombers";
+            } else {
+                if (_className find "spitfire" >= 0 || _className find "hurricane" >= 0 || _className find "bf109" >= 0 || _className find "P39" >= 0) then {
+                    _category = "Fighters";
+                } else {
+                    if (_className find "mosquito" >= 0 || _className find "lysander" >= 0 || _className find "FW189" >= 0) then {
+                        _category = "Recon";
+                    };
+                };
+            };
+        };
+        
+        _category
+    };
+};
+
+// Key function to add aircraft to HANGAR_aircraftTypes if not already present
+HANGAR_fnc_addAircraftToTypes = {
+    params ["_className", "_displayName", ["_crewCount", 1]];
+    
+    // Determine category
+    private _category = [_className] call HANGAR_fnc_determineAircraftCategory;
+    diag_log format ["AIRCRAFT: Determined category %1 for %2", _category, _className];
+    
+    // Find category in HANGAR_aircraftTypes
+    private _categoryIndex = -1;
+    {
+        if ((_x select 0) == _category) exitWith {
+            _categoryIndex = _forEachIndex;
+        };
+    } forEach HANGAR_aircraftTypes;
+    
+    // Exit if category not found
+    if (_categoryIndex == -1) exitWith {
+        diag_log format ["AIRCRAFT: Category %1 not found in HANGAR_aircraftTypes", _category];
+        false
+    };
+    
+    // Find if aircraft already exists in category
+    private _categoryArray = HANGAR_aircraftTypes select _categoryIndex;
+    private _aircraftList = _categoryArray select 1;
+    private _exists = false;
+    
+    {
+        if ((_x select 0) == _className) exitWith {
+            _exists = true;
+            diag_log format ["AIRCRAFT: %1 already exists in category %2", _className, _category];
+        };
+    } forEach _aircraftList;
+    
+    // Add aircraft if it doesn't exist
+    if (!_exists) then {
+        (_categoryArray select 1) pushBack [_className, _displayName, _crewCount];
+        diag_log format ["AIRCRAFT: Added %1 to category %2", _displayName, _category];
+        
+        // Notification
+        systemChat format ["New aircraft type added: %1", _displayName];
+        true
+    } else {
+        false
+    };
+};
+
 // === AIRCRAFT CONFIGURATION ===
 // === GAMEPLAY VARIABLES - ADJUST THESE VALUES TO CHANGE AVAILABLE AIRCRAFT ===
 HANGAR_aircraftTypes = [
     ["Transport", [
-        ["LIB_C47_RAF", "C-47 Dakota", 1] // [classname, display name, required crew]
+       
     ]],
     ["Fighters", [
-        ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
-        ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
-        ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
-        ["sab_fl_spitfire_mk9", "Spitfire Mk.IX", 1]
+        
     ]],
     ["Recon", [
-        ["sab_fl_dh98", "Mosquito", 2]
+        
     ]],
     ["Bombers", [
-        ["sab_sw_halifax", "Halifax", 5]
+       
     ]]
 ];
 
