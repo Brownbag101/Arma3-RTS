@@ -220,27 +220,11 @@ HANGAR_fnc_getFieldAircraft = {
     _fieldAircraft
 };
 
-// Function to show the aircraft in the viewing area
+// Fixed aircraft viewing function
 HANGAR_fnc_viewAircraft = {
     params ["_index"];
     
-    // Log for debugging
-    diag_log format ["Viewing aircraft at index %1", _index];
-    
-    // Keep track of the previously viewed index
-    private _prevIndex = missionNamespace getVariable ["HANGAR_lastViewedIndex", -1];
-    private _isSameAircraft = _prevIndex == _index;
-    
-    // Store the new index
-    missionNamespace setVariable ["HANGAR_lastViewedIndex", _index];
-    
-    // If we're viewing the same aircraft again, just return the existing one
-    if (_isSameAircraft && !isNull HANGAR_viewedAircraft) exitWith {
-        diag_log format ["Reusing existing view for aircraft index %1", _index];
-        HANGAR_viewedAircraft
-    };
-    
-    // Clear any existing viewed aircraft - this will delete non-deployed ones
+    // Always clear any existing aircraft first
     call HANGAR_fnc_clearViewedAircraft;
     
     // Get aircraft data
@@ -251,7 +235,7 @@ HANGAR_fnc_viewAircraft = {
     // Generate a unique ID for this aircraft view
     private _uniqueID = format ["%1_%2_%3", _aircraftType, _index, diag_tickTime];
     
-    // Check if this aircraft is already deployed
+    // Check if already deployed
     private _deployed = false;
     private _deployedAircraft = objNull;
     
@@ -265,26 +249,18 @@ HANGAR_fnc_viewAircraft = {
         };
     } forEach HANGAR_deployedAircraft;
     
-    // If aircraft is already deployed, just set it as the viewed aircraft
     if (_deployed && !isNull _deployedAircraft) then {
-        diag_log format ["Using already deployed aircraft for viewing: %1", _uniqueID];
         HANGAR_viewedAircraft = _deployedAircraft;
-        
-        // Display a message to inform the user
         systemChat format ["%1 is currently deployed in the field", _displayName];
     } else {
         // Retrieve but don't deploy the aircraft
         HANGAR_viewedAircraft = [_index, false] call HANGAR_fnc_retrieveAircraft;
         
-        // Set the unique ID and mark as a VIEW model (not deployed)
         HANGAR_viewedAircraft setVariable ["HANGAR_uniqueID", _uniqueID, true];
         HANGAR_viewedAircraft setVariable ["HANGAR_storageIndex", _index, true];
         HANGAR_viewedAircraft setVariable ["HANGAR_isViewModel", true, true];
-        
-        diag_log format ["Created new viewing model for aircraft: %1", _uniqueID];
     };
     
-    // Return the created/referenced aircraft
     HANGAR_viewedAircraft
 };
 
@@ -390,7 +366,7 @@ HANGAR_fnc_cleanupViewModels = {
     _count
 };
 
-// Function to deploy aircraft
+// Function to deploy aircraft - FIXED VERSION WITH LOITER WAYPOINT
 HANGAR_fnc_deployAircraft = {
     params ["_index", "_deployPosIndex"];
     
@@ -399,59 +375,144 @@ HANGAR_fnc_deployAircraft = {
         objNull
     };
     
-    // Check if deploy position is valid
     if (_deployPosIndex < 0 || _deployPosIndex >= count HANGAR_deployPositions) exitWith {
         systemChat "Invalid deploy position";
         objNull
     };
     
     private _deployPos = HANGAR_deployPositions select _deployPosIndex;
+    private _record = HANGAR_storedAircraft select _index;
+    private _displayName = _record select 1;
+    private _deployedAircraft = objNull;
     
-    // NEW: Check if this aircraft is already deployed
-    private _alreadyDeployed = false;
-    private _existingAircraft = objNull;
-    
-    {
-        if (!isNull _x) then {
-            private _storedIndex = _x getVariable ["HANGAR_storageIndex", -1];
-            if (_storedIndex == _index) exitWith {
-                _alreadyDeployed = true;
-                _existingAircraft = _x;
-            };
-        };
-    } forEach HANGAR_deployedAircraft;
-    
-    // NEW: If already deployed, just move it to the new position
-    if (_alreadyDeployed && !isNull _existingAircraft) then {
-        systemChat "Aircraft already deployed - moving to new position";
+    // First check if viewed aircraft matches this index
+    if (!isNull HANGAR_viewedAircraft && 
+        (HANGAR_viewedAircraft getVariable ["HANGAR_storageIndex", -1]) == _index) then {
+        
+        diag_log format ["Using viewed aircraft for deployment: %1", _displayName];
         
         // Move to new position if marker exists
         if (markerType _deployPos != "") then {
             private _newPos = getMarkerPos _deployPos;
             private _newDir = markerDir _deployPos;
             
-            _existingAircraft setPos _newPos;
-            _existingAircraft setDir _newDir;
-        };
-        
-        // Return the existing aircraft
-        _existingAircraft
-    } else {
-        // Retrieve and deploy the aircraft
-        private _aircraft = [_index, true, _deployPos] call HANGAR_fnc_retrieveAircraft;
-        
-        if (isNull _aircraft) exitWith {
-            systemChat "Failed to deploy aircraft";
-            objNull
-        };
-        
-        // Clear viewed aircraft if this was the one being viewed
-        if (_aircraft == HANGAR_viewedAircraft) then {
+            // Move the aircraft to deploy position
+            HANGAR_viewedAircraft setPos _newPos;
+            HANGAR_viewedAircraft setDir _newDir;
+            
+            // Mark as deployed and remove view model status
+            HANGAR_viewedAircraft setVariable ["HANGAR_isViewModel", false, true];
+            HANGAR_viewedAircraft setVariable ["HANGAR_deployed", true, true];
+            
+            // Enable pilots that were in view-only mode
+            {
+                if (_x getVariable ["HANGAR_viewModelPilot", false]) then {
+                    _x setVariable ["HANGAR_viewModelPilot", false, true];
+                    _x enableAI "MOVE";
+                    _x setBehaviour "AWARE";
+                };
+            } forEach crew HANGAR_viewedAircraft;
+            
+            // Add to deployed tracking
+            HANGAR_deployedAircraft pushBack HANGAR_viewedAircraft;
+            
+            // Remove from storage
+            HANGAR_storedAircraft deleteAt _index;
+            
+            // Update storage indices
+            [_index] call HANGAR_fnc_updateStorageIndices;
+            
+            // Set the deployedAircraft for waypoint assignment
+            _deployedAircraft = HANGAR_viewedAircraft;
+            
+            // Clear viewed aircraft reference
             HANGAR_viewedAircraft = objNull;
+            
+            systemChat format ["%1 deployed", _displayName];
         };
+    } else {
+        // Check if already deployed elsewhere
+        private _alreadyDeployed = false;
+        private _existingAircraft = objNull;
         
-        _aircraft
+        {
+            if (!isNull _x) then {
+                private _storedIndex = _x getVariable ["HANGAR_storageIndex", -1];
+                if (_storedIndex == _index) exitWith {
+                    _alreadyDeployed = true;
+                    _existingAircraft = _x;
+                };
+            };
+        } forEach HANGAR_deployedAircraft;
+        
+        // If already deployed, just move it
+        if (_alreadyDeployed && !isNull _existingAircraft) then {
+            systemChat "Aircraft already deployed - moving to new position";
+            
+            if (markerType _deployPos != "") then {
+                private _newPos = getMarkerPos _deployPos;
+                private _newDir = markerDir _deployPos;
+                
+                _existingAircraft setPos _newPos;
+                _existingAircraft setDir _newDir;
+            };
+            
+            _deployedAircraft = _existingAircraft;
+        } else {
+            // Last resort - create new aircraft
+            _deployedAircraft = [_index, true, _deployPos] call HANGAR_fnc_retrieveAircraft;
+            
+            if (isNull _deployedAircraft) exitWith {
+                systemChat "Failed to deploy aircraft";
+                objNull
+            };
+        };
     };
+    
+    // If we have a deployed aircraft, set up loiter waypoint
+    if (!isNull _deployedAircraft) then {
+        // Get the group of the aircraft
+        private _group = group driver _deployedAircraft;
+        
+        if (!isNull _group) then {
+            // Clear existing waypoints
+            while {count waypoints _group > 0} do {
+                deleteWaypoint [_group, 0];
+            };
+            
+            // Look for a loiter marker
+            private _loiterMarker = "air_loiter";
+            private _loiterPos = [0,0,0];
+            
+            if (markerType _loiterMarker == "") then {
+                // If no specific loiter marker, use center of map
+                _loiterPos = [worldSize/2, worldSize/2, 300];
+                systemChat "No air_loiter marker found, using map center";
+            } else {
+                _loiterPos = getMarkerPos _loiterMarker;
+                _loiterPos set [2, 300]; // Set altitude to 300m
+            };
+            
+            // Create loiter waypoint
+            private _wp = _group addWaypoint [_loiterPos, 0];
+            _wp setWaypointType "LOITER";
+            _wp setWaypointLoiterType "CIRCLE";
+            _wp setWaypointLoiterRadius 800; // 800m radius circle
+            _wp setWaypointSpeed "LIMITED";
+            _wp setWaypointBehaviour "SAFE";
+            _wp setWaypointCombatMode "BLUE"; // Only fire in self-defense
+            
+            // Set group behavior
+            _group setBehaviour "SAFE";
+            _group setCombatMode "BLUE";
+            
+            
+            
+            systemChat format ["%1 assigned to loiter patrol", _displayName];
+        };
+    };
+    
+    _deployedAircraft
 };
 
 // Function to get required crew count for an aircraft type
@@ -876,6 +937,23 @@ HANGAR_fnc_monitorDeployedAircraft = {
         
         systemChat "Added ammunition resource to economy system";
     };
+};
+
+// Update storage indices after a plane is deployed
+HANGAR_fnc_updateStorageIndices = {
+    params ["_deployedIndex"];
+    
+    // Update all deployed aircraft indices
+    {
+        if (!isNull _x) then {
+            private _oldIndex = _x getVariable ["HANGAR_storageIndex", -1];
+            if (_oldIndex > _deployedIndex) then {
+                // Decrement index for all aircraft with higher indices
+                _x setVariable ["HANGAR_storageIndex", _oldIndex - 1, true];
+                diag_log format ["Updated aircraft index from %1 to %2", _oldIndex, _oldIndex - 1];
+            };
+        };
+    } forEach HANGAR_deployedAircraft;
 };
 
 // Call this function a few seconds after initialization

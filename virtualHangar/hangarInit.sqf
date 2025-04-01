@@ -9,6 +9,8 @@ HANGAR_aircraftTypes = [
     ]],
     ["Fighters", [
         ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
+		["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
+		["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1],
         ["sab_fl_spitfire_mk9", "Spitfire Mk.IX", 1]
     ]],
     ["Recon", [

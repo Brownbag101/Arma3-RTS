@@ -236,7 +236,7 @@ HANGAR_fnc_isPilotAvailableForAircraft = {
     [true, ""]
 };
 
-// Function to assign a pilot to an aircraft - FIXED VERSION WITH LOCAL SPAWNING
+// Function to assign a pilot to an aircraft - FIXED VERSION
 HANGAR_fnc_assignPilotToAircraft = {
     params ["_pilotIndex", "_aircraft", ["_role", "driver"], ["_turretPath", []]];
     
@@ -276,26 +276,21 @@ HANGAR_fnc_assignPilotToAircraft = {
     
     diag_log format ["Spawning pilot at position near aircraft: %1", _spawnPos];
     
-    // CRITICAL FIX: Create the unit with the specified model AND LOCAL TO SERVER
+    // Create the unit with the specified model AND LOCAL TO SERVER
     private _side = side player;
     private _group = createGroup [_side, true];
-    
-    // We'll use the extreme local option to avoid any locality issues
     private _unit = objNull;
     
     if (isServer) then {
         _unit = _group createUnit ["sab_fl_pilot_green", _spawnPos, [], 0, "NONE"];
     } else {
-        // Try to create locally on client first
         _unit = _group createUnit ["sab_fl_pilot_green", _spawnPos, [], 0, "NONE"];
         
-        // If that failed, ask server to do it
         if (isNull _unit) then {
             systemChat "Local unit creation failed, trying server-side creation";
             [_group, "sab_fl_pilot_green", _spawnPos, [], 0, "NONE"] remoteExec ["bis_fnc_spawnUnit", 2];
-            sleep 1; // Give it time to create
+            sleep 1;
             
-            // Look for the unit
             {
                 if (_x getVariable ["HANGAR_tempPilot", false]) exitWith {
                     _unit = _x;
@@ -309,8 +304,6 @@ HANGAR_fnc_assignPilotToAircraft = {
         diag_log "Critical error: Failed to create pilot unit";
         objNull
     };
-    
-    diag_log format ["Pilot unit created: %1 at position %2", _unit, getPos _unit];
     
     // CRITICAL FIX: Immediately make non-simulated to prevent simulation issues
     _unit enableSimulationGlobal false;
@@ -329,61 +322,59 @@ HANGAR_fnc_assignPilotToAircraft = {
     
     // Set skill based on rank
     private _skillMultiplier = [_rankIndex] call HANGAR_fnc_getPilotSkillMultiplier;
-    _unit setSkill (_skillMultiplier * 0.7); // Base skill of 0.7 modified by rank
+    _unit setSkill (_skillMultiplier * 0.7);
     
-    // CRITICAL FIX: Disable AI systems that might cause issues
+    // Disable AI systems for all pilot types
     {
         _unit disableAI _x;
     } forEach ["TARGET", "AUTOTARGET", "MOVE", "ANIM", "FSM"];
     
-    // CRITICAL FIX: Store reference globally so we can recover it
-    missionNamespace setVariable [format ["HANGAR_pilot_%1", _pilotIndex], _unit, true];
-    
-    // CRITICAL FIX: Skip the walking part completely - immediately put in vehicle
-    switch (_role) do {
-        case "driver": {
-            diag_log "Moving pilot directly into driver position";
-            _unit moveInDriver _aircraft;
-        };
-        case "gunner": {
-            diag_log "Moving pilot directly into gunner position";
-            _unit moveInGunner _aircraft;
-        };
-        case "commander": {
-            diag_log "Moving pilot directly into commander position";
-            _unit moveInCommander _aircraft;
-        };
-        case "turret": {
-            diag_log format ["Moving pilot directly into turret %1", _turretPath];
-            _unit moveInTurret [_aircraft, _turretPath];
-        };
-        case "cargo": {
-            diag_log "Moving pilot directly into cargo";
-            _unit moveInCargo _aircraft;
-        };
+    // NEW: Special handling for view model pilots
+    if (_aircraft getVariable ["HANGAR_isViewModel", false]) then {
+        // Completely disable ALL AI for view model pilots
+        _unit disableAI "ALL";
+        _unit setBehaviour "CARELESS";
+        _unit allowFleeing 0;
+        _unit setVariable ["HANGAR_viewModelPilot", true, true];
+        diag_log format ["Applied special view model pilot restrictions to %1", _unit];
     };
     
-    // Wait briefly and check if pilot got in
+    // Store reference globally
+    missionNamespace setVariable [format ["HANGAR_pilot_%1", _pilotIndex], _unit, true];
+    
+    // Skip walking, directly put in vehicle
+    switch (_role) do {
+        case "driver": { _unit moveInDriver _aircraft; };
+        case "gunner": { _unit moveInGunner _aircraft; };
+        case "commander": { _unit moveInCommander _aircraft; };
+        case "turret": { _unit moveInTurret [_aircraft, _turretPath]; };
+        case "cargo": { _unit moveInCargo _aircraft; };
+    };
+    
+    // Check if pilot got in
     [_unit, _aircraft, _role, _turretPath, _pilotIndex] spawn {
         params ["_unit", "_aircraft", "_role", "_turretPath", "_pilotIndex"];
         
         sleep 1;
         
-        // Check if pilot is in the aircraft
         if (vehicle _unit == _aircraft) then {
             diag_log "Pilot successfully entered aircraft";
             
-            // Re-enable simulation now that pilot is safely in aircraft
             _unit enableSimulationGlobal true;
             _unit setCaptive false;
             
-            // Mark aircraft as deployed
-            _aircraft setVariable ["HANGAR_deployed", true, true];
-            _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
-            
-            systemChat format ["%1 is now piloting the aircraft", name _unit];
+            // Only mark as deployed if not a view model
+            if !(_aircraft getVariable ["HANGAR_isViewModel", false]) then {
+                _aircraft setVariable ["HANGAR_deployed", true, true];
+                _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
+                systemChat format ["%1 is now piloting the aircraft", name _unit];
+            } else {
+                // For view models, keep AI disabled
+                _unit disableAI "ALL";
+                systemChat format ["%1 is now assigned to the aircraft", name _unit];
+            };
         } else {
-            // Emergency teleport if not in vehicle
+            // Emergency teleport if needed
             diag_log "EMERGENCY: Pilot failed to enter vehicle, trying direct teleport";
             
             switch (_role) do {
@@ -399,21 +390,21 @@ HANGAR_fnc_assignPilotToAircraft = {
             if (vehicle _unit == _aircraft) then {
                 diag_log "Emergency teleport successful";
                 _unit enableSimulationGlobal true;
-                _unit setCaptive false;
-                _aircraft setVariable ["HANGAR_deployed", true, true];
-                _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
-                systemChat format ["%1 is now piloting the aircraft", name _unit];
+                
+                if !(_aircraft getVariable ["HANGAR_isViewModel", false]) then {
+                    _aircraft setVariable ["HANGAR_deployed", true, true];
+                    _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
+                } else {
+                    _unit disableAI "ALL";
+                };
             } else {
-                systemChat "Failed to place pilot in aircraft after multiple attempts";
-                diag_log "CRITICAL FAILURE: Could not place pilot in aircraft after multiple attempts";
-                // Clean up the failed pilot
+                systemChat "Failed to place pilot in aircraft";
                 deleteVehicle _unit;
                 [_pilotIndex, "assignment", objNull] call HANGAR_fnc_updatePilotStats;
             };
         };
     };
     
-    // Return the created unit
     _unit
 };
 
