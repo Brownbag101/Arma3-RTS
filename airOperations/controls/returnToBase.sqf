@@ -84,37 +84,7 @@ AIR_OP_fnc_returnToBase = {
         systemChat format ["%1 returning to base.", _aircraftType];
     };
     
-    // Create recovery trigger when aircraft gets close to base
-    [_aircraft, _basePos] spawn {
-        params ["_aircraft", "_basePos"];
-        
-        // Wait until aircraft is close to base or doesn't exist anymore
-        waitUntil {
-            sleep 5;
-            isNull _aircraft || {_aircraft distance _basePos < 150} || {!alive _aircraft}
-        };
-        
-        if (!isNull _aircraft && alive _aircraft) then {
-            // Aircraft reached base, remove from deployed array and store in hangar
-            if (!isNil "HANGAR_fnc_storeAircraft") then {
-                [_aircraft] call HANGAR_fnc_storeAircraft;
-                systemChat format ["%1 has landed and been stored in hangar", getText (configFile >> "CfgVehicles" >> typeOf _aircraft >> "displayName")];
-            } else {
-                // If hangar system isn't available, just provide feedback
-                systemChat format ["%1 has returned to base", getText (configFile >> "CfgVehicles" >> typeOf _aircraft >> "displayName")];
-                
-                // Remove from deployed tracking
-                if (!isNil "HANGAR_deployedAircraft") then {
-                    HANGAR_deployedAircraft = HANGAR_deployedAircraft - [_aircraft];
-                };
-                
-                // Delete crew
-                {deleteVehicle _x} forEach crew _aircraft;
-                // Delete aircraft
-                deleteVehicle _aircraft;
-            };
-        };
-    };
+    
     
     true
 };

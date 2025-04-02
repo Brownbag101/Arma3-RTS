@@ -10,6 +10,29 @@ AIR_OP_ALTITUDE_PRESETS = [
     ["Very High", 2000, "Maximum operational altitude - safest from ground fire"]
 ];
 
+// Function to force close any open dialog
+AIR_OP_fnc_forceCloseDialog = {
+    disableSerialization;
+    private _display = findDisplay -1;
+    if (!isNull _display) then {
+        _display closeDisplay 1;
+    };
+    
+    // Also check for other potential dialog IDs that might be open
+    {
+        private _d = findDisplay _x;
+        if (!isNull _d) then {
+            _d closeDisplay 1;
+        };
+    } forEach [312000, -1390, 46];
+    
+    // Return to Zeus if needed
+    private _zeusDisplay = findDisplay 312;
+    if (!isNull _zeusDisplay) then {
+        ctrlActivate (_zeusDisplay displayCtrl 15717);
+    };
+};
+
 AIR_OP_fnc_setAltitude = {
     // Use the currently selected aircraft or the one passed as parameter
     params [["_aircraft", AIR_OP_selectedAircraft]];
@@ -20,12 +43,28 @@ AIR_OP_fnc_setAltitude = {
         false
     };
     
-    // Create dialog for altitude selection
-    createDialog "RscDisplayEmpty";
-    private _display = findDisplay -1;
+    // Force close any existing dialogs first
+    
+    
+    // Create dialog for altitude selection using an alternative approach
+    // Instead of calling createDialog directly, which might cause issues in Zeus
+    // we'll use the findDisplay command first to make sure we don't have conflicts
+    disableSerialization;
+    private _display = findDisplay 312; // Zeus display
+    
+    // If we're in Zeus, create the dialog as a child of Zeus display
+    if (!isNull _display) then {
+        _display createDisplay "RscDisplayEmpty";
+        _display = findDisplay -1;
+    } else {
+        // Outside Zeus, create dialog normally
+        createDialog "RscDisplayEmpty";
+        _display = findDisplay -1;
+    };
     
     if (isNull _display) exitWith {
         diag_log "AIR_OPS ALTITUDE: Failed to create dialog";
+        systemChat "Could not create altitude adjustment dialog";
         false
     };
     
@@ -119,7 +158,7 @@ AIR_OP_fnc_setAltitude = {
         
         if (isNull _aircraft) exitWith {
             systemChat "No aircraft selected";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         // Get altitude from input field
@@ -137,27 +176,43 @@ AIR_OP_fnc_setAltitude = {
         // Give feedback
         systemChat format ["%1 altitude set to %2m", getText (configFile >> "CfgVehicles" >> typeOf _aircraft >> "displayName"), _altitude];
         
-        // Update waypoints if needed
-        private _group = group driver _aircraft;
-        if (!isNull _group) then {
-            {
-                if (_x select 0 == _group) then {
-                    private _wps = _x select 1;
+        // Update waypoints if needed - FIXED WAYPOINT CODE
+        private _driver = driver _aircraft;
+        if (!isNull _driver) then {
+            private _group = group _driver;
+            if (!isNull _group) then {
+                // Safer waypoint handling - guard against unexpected data types
+                private _allWaypoints = waypoints _group;
+                
+                if (_allWaypoints isEqualType []) then {
                     {
-                        // Ensure waypoint has the new altitude
-                        private _wpPos = waypointPosition _x;
-                        _wpPos set [2, _altitude];
-                        _x setWaypointPosition [_wpPos, 0];
-                    } forEach _wps;
+                        if (_x isEqualType []) then {
+                            private _wpPos = waypointPosition _x;
+                            if (count _wpPos >= 3) then {
+                                _wpPos set [2, _altitude];
+                                _x setWaypointPosition [_wpPos, 0];
+                            };
+                        };
+                    } forEach _allWaypoints;
+                } else {
+                    // Alternative waypoint iteration approach
+                    for "_i" from 0 to (count waypoints _group - 1) do {
+                        private _wp = [_group, _i];
+                        private _wpPos = waypointPosition _wp;
+                        if (count _wpPos >= 3) then {
+                            _wpPos set [2, _altitude];
+                            _wp setWaypointPosition [_wpPos, 0];
+                        };
+                    };
                 };
-            } forEach waypoints _group;
+            };
         };
         
-        closeDialog 0;
+        [] call AIR_OP_fnc_forceCloseDialog;
     }];
     
     _cancelBtn ctrlAddEventHandler ["ButtonClick", {
-        closeDialog 0;
+        [] call AIR_OP_fnc_forceCloseDialog;
     }];
     
     // Select first item by default

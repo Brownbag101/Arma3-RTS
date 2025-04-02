@@ -18,12 +18,25 @@ AIR_OP_fnc_setSpeed = {
         false
     };
     
-    // Create dialog for speed selection
-    createDialog "RscDisplayEmpty";
-    private _display = findDisplay -1;
+    
+    
+    // Create dialog for speed selection - Zeus compatible approach
+    disableSerialization;
+    private _display = findDisplay 312; // Zeus display
+    
+    // If we're in Zeus, create the dialog as a child of Zeus display
+    if (!isNull _display) then {
+        _display createDisplay "RscDisplayEmpty";
+        _display = findDisplay -1;
+    } else {
+        // Outside Zeus, create dialog normally
+        createDialog "RscDisplayEmpty";
+        _display = findDisplay -1;
+    };
     
     if (isNull _display) exitWith {
         diag_log "AIR_OPS SPEED: Failed to create dialog";
+        systemChat "Could not create speed adjustment dialog";
         false
     };
     
@@ -101,7 +114,7 @@ AIR_OP_fnc_setSpeed = {
         
         if (isNull _aircraft) exitWith {
             systemChat "No aircraft selected";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         // Get speed from selection
@@ -110,7 +123,7 @@ AIR_OP_fnc_setSpeed = {
         
         if (_selectedIndex == -1) exitWith {
             systemChat "No speed setting selected";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         private _speedSetting = _list lbData _selectedIndex;
@@ -119,31 +132,41 @@ AIR_OP_fnc_setSpeed = {
         private _driver = driver _aircraft;
         if (isNull _driver) exitWith {
             systemChat "Aircraft has no pilot";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         private _group = group _driver;
         if (isNull _group) exitWith {
             systemChat "Pilot has no group";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         // Apply speed setting to group
         _group setSpeedMode _speedSetting;
         
-        // Update all waypoints
-        {
-            _x setWaypointSpeed _speedSetting;
-        } forEach waypoints _group;
+        // Update all waypoints - safer approach
+        if (waypoints _group isEqualType []) then {
+            {
+                if (_x isEqualType []) then {
+                    _x setWaypointSpeed _speedSetting;
+                };
+            } forEach waypoints _group;
+        } else {
+            // Alternative waypoint iteration approach
+            for "_i" from 0 to (count waypoints _group - 1) do {
+                private _wp = [_group, _i];
+                _wp setWaypointSpeed _speedSetting;
+            };
+        };
         
         // Give feedback
         systemChat format ["%1 speed set to %2", getText (configFile >> "CfgVehicles" >> typeOf _aircraft >> "displayName"), _speedSetting];
         
-        closeDialog 0;
+        [] call AIR_OP_fnc_forceCloseDialog;
     }];
     
     _cancelBtn ctrlAddEventHandler ["ButtonClick", {
-        closeDialog 0;
+        [] call AIR_OP_fnc_forceCloseDialog;
     }];
     
     // Select Normal speed by default

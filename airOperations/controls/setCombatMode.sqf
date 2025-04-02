@@ -20,12 +20,25 @@ AIR_OP_fnc_setCombatMode = {
         false
     };
     
-    // Create dialog for combat mode selection
-    createDialog "RscDisplayEmpty";
-    private _display = findDisplay -1;
+    
+    
+    // Create dialog for combat mode selection - Zeus compatible approach
+    disableSerialization;
+    private _display = findDisplay 312; // Zeus display
+    
+    // If we're in Zeus, create the dialog as a child of Zeus display
+    if (!isNull _display) then {
+        _display createDisplay "RscDisplayEmpty";
+        _display = findDisplay -1;
+    } else {
+        // Outside Zeus, create dialog normally
+        createDialog "RscDisplayEmpty";
+        _display = findDisplay -1;
+    };
     
     if (isNull _display) exitWith {
         diag_log "AIR_OPS COMBAT: Failed to create dialog";
+        systemChat "Could not create combat mode dialog";
         false
     };
     
@@ -133,7 +146,7 @@ AIR_OP_fnc_setCombatMode = {
         
         if (isNull _aircraft) exitWith {
             systemChat "No aircraft selected";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         // Get combat mode from selection
@@ -142,7 +155,7 @@ AIR_OP_fnc_setCombatMode = {
         
         if (_selectedIndex == -1) exitWith {
             systemChat "No combat mode selected";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         private _combatMode = _list lbData _selectedIndex;
@@ -151,13 +164,13 @@ AIR_OP_fnc_setCombatMode = {
         private _driver = driver _aircraft;
         if (isNull _driver) exitWith {
             systemChat "Aircraft has no pilot";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         private _group = group _driver;
         if (isNull _group) exitWith {
             systemChat "Pilot has no group";
-            closeDialog 0;
+            [] call AIR_OP_fnc_forceCloseDialog;
         };
         
         // Apply combat mode to group
@@ -172,19 +185,29 @@ AIR_OP_fnc_setCombatMode = {
             case "RED": { _group setBehaviour "COMBAT"; };
         };
         
-        // Update all waypoints
-        {
-            _x setWaypointCombatMode _combatMode;
-        } forEach waypoints _group;
+        // Update all waypoints - safer approach
+        if (waypoints _group isEqualType []) then {
+            {
+                if (_x isEqualType []) then {
+                    _x setWaypointCombatMode _combatMode;
+                };
+            } forEach waypoints _group;
+        } else {
+            // Alternative waypoint iteration approach
+            for "_i" from 0 to (count waypoints _group - 1) do {
+                private _wp = [_group, _i];
+                _wp setWaypointCombatMode _combatMode;
+            };
+        };
         
         // Give feedback
         systemChat format ["%1 combat mode set to %2", getText (configFile >> "CfgVehicles" >> typeOf _aircraft >> "displayName"), _combatMode];
         
-        closeDialog 0;
+        [] call AIR_OP_fnc_forceCloseDialog;
     }];
     
     _cancelBtn ctrlAddEventHandler ["ButtonClick", {
-        closeDialog 0;
+        [] call AIR_OP_fnc_forceCloseDialog;
     }];
     
     // Select current combat mode or YELLOW by default

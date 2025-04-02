@@ -108,63 +108,63 @@ fnc_openAirOperationsUI = {
     [] call fnc_populateAircraftCombo;
     
     // ===== CREATE MAP CONTROL =====
-    // Create map control - SMALLER map to allow more room for info panels
+    // Create map control - CENTERED with panels on either side
     private _map = _display ctrlCreate ["RscMapControl", 9010];
-    _map ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.4 * safezoneW, 0.57 * safezoneH]; // Reduced width from 0.5 to 0.4
+    _map ctrlSetPosition [0.33 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.34 * safezoneW, 0.57 * safezoneH]; // Centered map
     _map ctrlSetBackgroundColor [0.969, 0.957, 0.949, 1.0];
     _map ctrlCommit 0;
     
     // ===== CREATE INFO PANELS - IMPROVED LAYOUT =====
-    // Create aircraft info panel - NOW ON LEFT SIDE
+    // Create aircraft info panel - MOVED TO LEFT SIDE
     private _infoPanel = _display ctrlCreate ["RscText", 9100];
-    _infoPanel ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.35 * safezoneW, 0.2 * safezoneH]; // Wider panel
+    _infoPanel ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.2 * safezoneW, 0.26 * safezoneH]; // Left panel
     _infoPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _infoPanel ctrlCommit 0;
-
-    // Create aircraft info text
+    
+    // Create aircraft info text - MOVED TO LEFT SIDE
     private _infoText = _display ctrlCreate ["RscStructuredText", 9101];
-    _infoText ctrlSetPosition [0.54 * safezoneW + safezoneX, 0.16 * safezoneH + safezoneY, 0.33 * safezoneW, 0.18 * safezoneH]; // Wider text area
+    _infoText ctrlSetPosition [0.125 * safezoneW + safezoneX, 0.16 * safezoneH + safezoneY, 0.19 * safezoneW, 0.24 * safezoneH]; // Left text area
     _infoText ctrlSetStructuredText parseText "Select an aircraft to view details.";
     _infoText ctrlCommit 0;
-
-    // Create target info panel
+    
+    // Create target info panel - REMAINS ON RIGHT SIDE
     private _targetPanel = _display ctrlCreate ["RscText", 9110];
-    _targetPanel ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.36 * safezoneH + safezoneY, 0.35 * safezoneW, 0.2 * safezoneH]; // Wider panel
+    _targetPanel ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.2 * safezoneW, 0.26 * safezoneH]; // Right panel
     _targetPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _targetPanel ctrlCommit 0;
-
-    // Create target info text
+    
+    // Create target info text - REMAINS ON RIGHT SIDE
     private _targetText = _display ctrlCreate ["RscStructuredText", 9111];
-    _targetText ctrlSetPosition [0.54 * safezoneW + safezoneX, 0.37 * safezoneH + safezoneY, 0.33 * safezoneW, 0.18 * safezoneH]; // Wider text area
+    _targetText ctrlSetPosition [0.685 * safezoneW + safezoneX, 0.16 * safezoneH + safezoneY, 0.19 * safezoneW, 0.24 * safezoneH]; // Right text area
     _targetText ctrlSetStructuredText parseText "Select a target on the map.";
     _targetText ctrlCommit 0;
-
+    
     // ===== CREATE MISSION PANEL =====
-    // Create mission panel - IMPROVED VISIBILITY
+    // Create mission panel - REMAINS ON RIGHT, MOVED DOWN
     private _missionPanel = _display ctrlCreate ["RscText", 9200];
-    _missionPanel ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.57 * safezoneH + safezoneY, 0.35 * safezoneW, 0.15 * safezoneH]; // Wider panel
+    _missionPanel ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.2 * safezoneW, 0.3 * safezoneH]; // Right panel, taller for buttons
     _missionPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _missionPanel ctrlCommit 0;
-
+    
     // Create mission panel title
     private _missionTitle = _display ctrlCreate ["RscText", 9201];
-    _missionTitle ctrlSetPosition [0.53 * safezoneW + safezoneX, 0.57 * safezoneH + safezoneY, 0.35 * safezoneW, 0.04 * safezoneH]; // Wider title
+    _missionTitle ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.2 * safezoneW, 0.04 * safezoneH]; // Right title
     _missionTitle ctrlSetText "Available Missions";
     _missionTitle ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
     _missionTitle ctrlCommit 0;
-
+    
     // ===== CREATE MISSION BUTTONS =====
-    // Create mission buttons placeholder - IMPROVED LAYOUT
+    // Create mission buttons - MORE SPACE VERTICALLY
     private _buttonHeight = 0.04 * safezoneH;
     private _buttonMargin = 0.01 * safezoneH;
-    private _buttonY = 0.62 * safezoneH + safezoneY;
-
+    private _buttonY = 0.47 * safezoneH + safezoneY;
+    
     for "_i" from 0 to 4 do {
         private _button = _display ctrlCreate ["RscButton", 9300 + _i];
         _button ctrlSetPosition [
-            0.54 * safezoneW + safezoneX,
+            0.69 * safezoneW + safezoneX,
             _buttonY + (_i * (_buttonHeight + _buttonMargin)),
-            0.33 * safezoneW, // Wider buttons
+            0.18 * safezoneW, // Slightly narrower buttons
             _buttonHeight
         ];
         _button ctrlSetText "";
@@ -219,17 +219,17 @@ fnc_openAirOperationsUI = {
     _combatButton ctrlSetEventHandler ["ButtonClick", "[] call AIR_OP_fnc_setCombatMode"];
     _combatButton ctrlCommit 0;
     
-    // Create confirm mission button
+    // Create confirm mission button and cancel button (adjusted positions)
     private _confirmButton = _display ctrlCreate ["RscButton", 9500];
-    _confirmButton ctrlSetPosition [0.72 * safezoneW + safezoneX, 0.64 * safezoneH + safezoneY, 0.15 * safezoneW, 0.05 * safezoneH];
+    _confirmButton ctrlSetPosition [0.76 * safezoneW + safezoneX, 0.64 * safezoneH + safezoneY, 0.12 * safezoneW, 0.05 * safezoneH];
     _confirmButton ctrlSetText "Confirm Mission";
     _confirmButton ctrlSetBackgroundColor [0.2, 0.6, 0.2, 1];
     _confirmButton ctrlEnable false;
     _confirmButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_confirmAirMission"];
     _confirmButton ctrlCommit 0;
-
+    
     private _cancelButton = _display ctrlCreate ["RscButton", 9501];
-    _cancelButton ctrlSetPosition [0.54 * safezoneW + safezoneX, 0.64 * safezoneH + safezoneY, 0.07 * safezoneW, 0.05 * safezoneH];
+    _cancelButton ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.64 * safezoneH + safezoneY, 0.07 * safezoneW, 0.05 * safezoneH];
     _cancelButton ctrlSetText "Cancel";
     _cancelButton ctrlSetBackgroundColor [0.6, 0.2, 0.2, 1];
     _cancelButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
@@ -479,7 +479,7 @@ fnc_updateAircraftInfo = {
     _infoText ctrlSetStructuredText parseText _text;
 };
 
-// Function to update target info panel
+// Function to update target info panel (continued)
 fnc_updateTargetInfo = {
     private _display = findDisplay -1;
     private _targetText = _display displayCtrl 9111;
