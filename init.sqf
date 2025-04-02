@@ -45,6 +45,11 @@ if (hasInterface) then {
 	
 	// Load Unit Management System
     [] execVM "scripts\menu\unitManagementInit.sqf";
+	
+	[] execVM "scripts\virtualHangar\hangarInit.sqf";
+	
+	// Load Air Operations system
+	[] execVM "scripts\airOperations\airOperationsInit.sqf";
 };
 
 [] execVM "scripts\towCargoGlobals.sqf";
@@ -53,6 +58,7 @@ if (hasInterface) then {
 [] execVM "scripts\menu\researchTreeSystem.sqf";
 [] execVM "scripts\menu\procurementSystem.sqf";
 [] execVM "scripts\menu\constructionSystem.sqf";
+[] execVM "scripts\functions\focusCamera.sqf";
 
 if (isServer) then {
     [] execVM "zeusUISystem.sqf";
