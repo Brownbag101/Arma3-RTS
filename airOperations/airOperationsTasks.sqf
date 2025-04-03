@@ -329,7 +329,7 @@ AIR_OP_fnc_performBombing = {
         [_targetPos, _specialization] spawn {
             params ["_pos", "_specialization"];
             
-            sleep 15; // Wait for approach
+            sleep 5; // Wait for approach
             
             // Different bombing effects based on aircraft type
             private _bombCount = switch (_specialization) do {
@@ -350,15 +350,7 @@ AIR_OP_fnc_performBombing = {
                 // Create explosion
                 "Bo_GBU12_LGB" createVehicle _bombPos;
                 
-                // Damage nearby objects
-                private _nearbyObjs = _bombPos nearEntities [["Man", "Car", "Tank", "House"], 50];
-                {
-                    if (!isNull _x && damage _x < 0.9) then {
-                        _x setDamage (damage _x + 0.3 + random 0.7);
-                    };
-                } forEach _nearbyObjs;
                 
-                sleep (1 + random 1);
             };
             
             // Notification
@@ -522,26 +514,77 @@ AIR_OP_fnc_executeMission = {
         false
     };
     
-    // Execute appropriate mission function based on type
+    // Find active mission ID for this aircraft
+    private _missionID = "";
+    {
+        if ((_x select 1) == _aircraft) exitWith {
+            _missionID = _x select 0;
+        };
+    } forEach AIR_OP_activeMissions;
+    
+    // Skip if no active mission found
+    if (_missionID == "") exitWith {
+        diag_log "AIR_OPS TASK: No active mission found for aircraft";
+        false
+    };
+    
+    // Set the correct status variable on aircraft based on mission type
     switch (_missionType) do {
         case "recon": {
+            // Set in-area status if not already set
+            if (isNil {_aircraft getVariable "AIR_OP_inArea"}) then {
+                _aircraft setVariable ["AIR_OP_inArea", false];
+                _aircraft setVariable ["AIR_OP_inAreaTime", 0];
+            };
+            
+            // Execute intelligence gathering effect
             [_aircraft, _targetIndex, _targetType] call AIR_OP_fnc_reconIntelGain;
         };
+        
         case "patrol": {
+            // Initialize patrol variables if needed
+            if (isNil {_aircraft getVariable "AIR_OP_patrolCircuits"}) then {
+                _aircraft setVariable ["AIR_OP_patrolCircuits", 0];
+                _aircraft setVariable ["AIR_OP_lastWP", currentWaypoint (group driver _aircraft)];
+            };
+            
+            // Execute patrol function
             [_aircraft, _targetIndex, _targetType] call AIR_OP_fnc_performPatrol;
         };
+        
         case "cas": {
-            [_aircraft, _targetIndex, _targetType] call AIR_OP_fnc_performCAS;
+            // Initialize CAS variables
+            if (isNil {_aircraft getVariable "AIR_OP_supportTime"}) then {
+                _aircraft setVariable ["AIR_OP_inArea", false];
+                _aircraft setVariable ["AIR_OP_supportTime", 0];
+            };
+            
+            // CAS function already called from completion code
         };
+        
         case "bombing": {
-            [_aircraft, _targetIndex, _targetType] call AIR_OP_fnc_performBombing;
+            // Initialize bombing variables
+            if (isNil {_aircraft getVariable "AIR_OP_bombsDropped"}) then {
+                _aircraft setVariable ["AIR_OP_bombsDropped", false];
+            };
+            
+            // Bombing function already called from completion code
         };
+        
         case "airsup": {
-            [_aircraft, _targetIndex, _targetType] call AIR_OP_fnc_performAirSup;
+            // Initialize air superiority variables
+            if (isNil {_aircraft getVariable "AIR_OP_combatTime"}) then {
+                _aircraft setVariable ["AIR_OP_inArea", false];
+                _aircraft setVariable ["AIR_OP_combatTime", 0];
+            };
+            
+            // Air superiority function already called from completion code
         };
+        
         default {
             diag_log format ["AIR_OPS TASK: Unknown mission type: %1", _missionType];
-            false
         };
     };
+    
+    true
 };

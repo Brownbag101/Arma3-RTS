@@ -170,7 +170,8 @@ AIR_OP_fnc_getAvailableMissions = {
     _validMissions
 };
 
-// Function to create a new air mission
+// Function to create a new air mission - COMPLETE FIXED VERSION
+// Function to create a new air mission - COMPLETE UPDATED VERSION
 AIR_OP_fnc_createMission = {
     params ["_aircraft", "_missionType", "_targetIndex", "_targetType"];
     
@@ -240,16 +241,17 @@ AIR_OP_fnc_createMission = {
         deleteWaypoint [_group, 0];
     };
     
-    // Make sure engine is on and AI is enabled
+    // Make sure engine is on and AI is enabled - FIXED
     _aircraft engineOn true;
     {
         if (_x getVariable ["HANGAR_isPilot", false]) then {
+            private _unit = _x; // Store crew member reference
             {
-                _x enableAI _x;
+                _unit enableAI _x; // Now uses unit correctly with each AI feature
             } forEach ["TARGET", "AUTOTARGET", "MOVE", "ANIM", "FSM"];
             
-            _x setBehaviour "AWARE";
-            _x setCombatMode "YELLOW";
+            _unit setBehaviour "AWARE";
+            _unit setCombatMode "YELLOW";
         };
     } forEach crew _aircraft;
     
@@ -278,46 +280,195 @@ AIR_OP_fnc_createMission = {
     // Force aircraft altitude
     _aircraft flyInHeight _wpAltitude;
     
-    // Create mission object including completion code
-    private _completionCode = compile format [
-        "
-        params ['_missionData'];
-        _missionData params ['_missionID', '_aircraft', '_missionType', '_targetIndex', '_targetType', '_waypoint', '_startTime'];
+    // Create mission object including completion code - ENHANCED VERSION
+    private _completionCode = compile "
+params ['_missionData'];
+_missionData params ['_missionID', '_aircraft', '_missionType', '_targetIndex', '_targetType', '_waypoint', '_startTime'];
+
+if (isNull _aircraft) exitWith { false };
+
+private _targetPos = [0,0,0];
+if (_targetType == 'LOCATION') then {
+    if (_targetIndex >= 0 && _targetIndex < count MISSION_LOCATIONS) then {
+        _targetPos = (MISSION_LOCATIONS select _targetIndex) select 3;
+    };
+} else {
+    if (_targetIndex >= 0 && _targetIndex < count HVT_TARGETS) then {
+        _targetPos = (HVT_TARGETS select _targetIndex) select 3;
+    };
+};
+
+private _missionTime = serverTime - _startTime;
+private _timeComplete = false;
+
+private _completionTime = switch (_missionType) do {
+    case 'recon': { 180 };
+    case 'patrol': { 300 };
+    case 'cas': { 300 };
+    case 'bombing': { 180 };
+    case 'airsup': { 300 };
+    default { 240 };
+};
+
+if (_missionTime >= _completionTime) then {
+    _timeComplete = true;
+};
+
+private _driver = driver _aircraft;
+private _group = group _driver;
+
+private _missionComplete = false;
+
+switch (_missionType) do {
+    case 'recon': {
+        private _inArea = _aircraft distance _targetPos < 300;
+        private _areaTime = _aircraft getVariable ['AIR_OP_inAreaTime', 0];
         
-        // For simplicity, missions are complete after a set time
-        private _missionTime = serverTime - _startTime;
-        
-        // Different completion times based on mission type
-        private _completionTime = switch (_missionType) do {
-            case 'recon': { 180 }; // 3 minutes
-            case 'patrol': { 300 }; // 5 minutes
-            case 'cas': { 300 }; // 5 minutes
-            case 'bombing': { 180 }; // 3 minutes
-            case 'airsup': { 300 }; // 5 minutes
-            default { 240 }; // 4 minutes default
+        if (_inArea) then {
+            if (_aircraft getVariable ['AIR_OP_inArea', false]) then {
+                _aircraft setVariable ['AIR_OP_inAreaTime', _areaTime + 2];
+            } else {
+                _aircraft setVariable ['AIR_OP_inArea', true];
+                _aircraft setVariable ['AIR_OP_inAreaTime', 0];
+            };
+        } else {
+            _aircraft setVariable ['AIR_OP_inArea', false];
         };
         
-        // Check if mission time meets completion requirement
-        if (_missionTime >= _completionTime) then {
-            // For recon missions, increase intel
-            if (_missionType == 'recon' && _targetType == 'LOCATION') then {
+        if ((_aircraft getVariable ['AIR_OP_inAreaTime', 0] >= 60) || _timeComplete) then {
+            if (_targetType == 'LOCATION') then {
                 if (_targetIndex >= 0 && _targetIndex < count MISSION_LOCATIONS) then {
                     [_targetIndex, 25] call fnc_modifyLocationIntel;
                 };
-            };
-            
-            if (_missionType == 'recon' && _targetType == 'HVT') then {
+            } else if (_targetType == 'HVT') then {
                 if (_targetIndex >= 0 && _targetIndex < count HVT_TARGETS) then {
                     [_targetIndex, 25] call fnc_modifyHVTIntel;
                 };
             };
             
-            true
-        } else {
-            false
+            _missionComplete = true;
         };
-        "
-    ];
+    };
+    
+    case 'patrol': {
+        private _inArea = _aircraft distance _targetPos < 600;
+        private _patrolCircuits = _aircraft getVariable ['AIR_OP_patrolCircuits', 0];
+        private _lastWP = _aircraft getVariable ['AIR_OP_lastWP', -1];
+        private _currentWP = currentWaypoint _group;
+        
+        private _enemiesInArea = false;
+        private _nearbyAir = _targetPos nearEntities ['Air', 1000];
+        private _enemyAir = _nearbyAir select {side _x != side player && side _x != civilian};
+        if (count _enemyAir > 0) then {
+            _enemiesInArea = true;
+        };
+        
+        if (_inArea && _currentWP != _lastWP) then {
+            _aircraft setVariable ['AIR_OP_lastWP', _currentWP];
+            
+            if (_currentWP == 1 && _lastWP > 1) then {
+                _patrolCircuits = _patrolCircuits + 1;
+                _aircraft setVariable ['AIR_OP_patrolCircuits', _patrolCircuits];
+                systemChat format ['Patrol circuit completed (%1)', _patrolCircuits];
+            };
+        };
+        
+        if ((_patrolCircuits >= 3) || 
+            (_patrolCircuits >= 1 && !_enemiesInArea) || 
+            (_timeComplete && _patrolCircuits >= 1)) then {
+            _missionComplete = true;
+        };
+    };
+    
+    case 'cas': {
+        private _inArea = _aircraft distance _targetPos < 400;
+        private _supportTime = _aircraft getVariable ['AIR_OP_supportTime', 0];
+        
+        private _nearbyGround = _targetPos nearEntities [['Man', 'Car', 'Tank'], 500];
+        private _enemyGround = _nearbyGround select {side _x != side player && side _x != civilian};
+        
+        if (_inArea) then {
+            if (_aircraft getVariable ['AIR_OP_inArea', false]) then {
+                _aircraft setVariable ['AIR_OP_supportTime', _supportTime + 2];
+            } else {
+                _aircraft setVariable ['AIR_OP_inArea', true];
+                _aircraft setVariable ['AIR_OP_supportTime', 0];
+            };
+            
+            if ((random 100) < 20 && count _enemyGround > 0) then {
+                [_aircraft, _targetIndex, _targetType] call AIR_OP_fnc_performCAS;
+            };
+        } else {
+            _aircraft setVariable ['AIR_OP_inArea', false];
+        };
+        
+        if ((count _enemyGround == 0 && _supportTime > 30) || 
+            (_supportTime >= 180) || 
+            (_timeComplete && _supportTime > 60)) then {
+            _missionComplete = true;
+        };
+    };
+    
+    case 'bombing': {
+        private _inArea = _aircraft distance _targetPos < 400;
+        private _bombsDropped = _aircraft getVariable ['AIR_OP_bombsDropped', false];
+        
+        if (_inArea && !_bombsDropped) then {
+            [_aircraft, _targetIndex, _targetType] call AIR_OP_fnc_performBombing;
+            _aircraft setVariable ['AIR_OP_bombsDropped', true];
+            
+            [_missionID, _aircraft] spawn {
+                params ['_missionID', '_aircraft'];
+                sleep 15;
+                
+                private _missionIndex = AIR_OP_activeMissions findIf {(_x select 0) == _missionID};
+                if (_missionIndex != -1) then {
+                    [_missionID, true] call AIR_OP_fnc_completeMission;
+                };
+            };
+        };
+        
+        if (_bombsDropped) then {
+            _missionComplete = true;
+        };
+    };
+    
+    case 'airsup': {
+        private _inArea = _aircraft distance _targetPos < 1000;
+        private _combatTime = _aircraft getVariable ['AIR_OP_combatTime', 0];
+        
+        private _nearbyAir = _targetPos nearEntities ['Air', 2000];
+        private _enemyAir = _nearbyAir select {side _x != side player && side _x != civilian};
+        
+        if (_inArea) then {
+            if (_aircraft getVariable ['AIR_OP_inArea', false]) then {
+                _aircraft setVariable ['AIR_OP_combatTime', _combatTime + 2];
+            } else {
+                _aircraft setVariable ['AIR_OP_inArea', true];
+                _aircraft setVariable ['AIR_OP_combatTime', 0];
+            };
+            
+            if ((random 100) < 15 && count _enemyAir > 0) then {
+                [_aircraft, _targetIndex, _targetType] call AIR_OP_fnc_performAirSup;
+            };
+        } else {
+            _aircraft setVariable ['AIR_OP_inArea', false];
+        };
+        
+        if ((count _enemyAir == 0 && _combatTime > 30) || 
+            (_combatTime >= 240) || 
+            (_timeComplete && _combatTime > 60)) then {
+            _missionComplete = true;
+        };
+    };
+    
+    default {
+        _missionComplete = _timeComplete;
+    };
+};
+
+_missionComplete
+";
     
     // Create the mission data object
     private _missionData = [
@@ -338,26 +489,26 @@ AIR_OP_fnc_createMission = {
     private _markerName = format ["air_mission_marker_%1", _missionID];
     private _marker = createMarker [_markerName, _targetPos];
     
-    // Set marker properties based on mission type
+    // Set marker properties based on mission type - FIXED
     switch (_missionType) do {
         case "recon": {
-            _marker setMarkerType "mil_recon";
+            _marker setMarkerType "hd_dot";          // Changed from mil_recon
             _marker setMarkerColor "ColorBlue";
         };
         case "patrol": {
-            _marker setMarkerType "mil_circle";
+            _marker setMarkerType "hd_dot";           // Changed from mil_circle
             _marker setMarkerColor "ColorBlue";
         };
         case "cas": {
-            _marker setMarkerType "mil_destroy";
+            _marker setMarkerType "hd_objective";     // Changed from mil_destroy
             _marker setMarkerColor "ColorRed";
         };
         case "bombing": {
-            _marker setMarkerType "mil_objective";
+            _marker setMarkerType "hd_destroy";       // Changed from mil_objective
             _marker setMarkerColor "ColorRed";
         };
         case "airsup": {
-            _marker setMarkerType "mil_triangle";
+            _marker setMarkerType "hd_warning";       // Changed from mil_triangle
             _marker setMarkerColor "ColorBlue";
         };
     };
@@ -366,6 +517,29 @@ AIR_OP_fnc_createMission = {
     
     // Add marker to mission data for cleanup
     _missionData pushBack _markerName;
+    
+    // Initialize mission-specific variables based on type
+    switch (_missionType) do {
+        case "recon": {
+            _aircraft setVariable ["AIR_OP_inArea", false];
+            _aircraft setVariable ["AIR_OP_inAreaTime", 0];
+        };
+        case "patrol": {
+            _aircraft setVariable ["AIR_OP_patrolCircuits", 0];
+            _aircraft setVariable ["AIR_OP_lastWP", currentWaypoint _group];
+        };
+        case "cas": {
+            _aircraft setVariable ["AIR_OP_inArea", false];
+            _aircraft setVariable ["AIR_OP_supportTime", 0];
+        };
+        case "bombing": {
+            _aircraft setVariable ["AIR_OP_bombsDropped", false];
+        };
+        case "airsup": {
+            _aircraft setVariable ["AIR_OP_inArea", false];
+            _aircraft setVariable ["AIR_OP_combatTime", 0];
+        };
+    };
     
     // Provide feedback
     private _missionDisplayName = "";
@@ -381,7 +555,7 @@ AIR_OP_fnc_createMission = {
     _missionID
 };
 
-// Function to check mission completion
+// Function to check mission completion - COMPLETE FIXED VERSION
 AIR_OP_fnc_checkMissions = {
     private _completedMissions = [];
     
@@ -403,10 +577,31 @@ AIR_OP_fnc_checkMissions = {
         };
         
         // Check if mission is complete using completion code
-        private _isComplete = [_missionData] call _completionCode;
+        private _isComplete = false;
         
+        try {
+            // Try to call the completion code directly with error handling
+            _isComplete = [_missionData] call _completionCode;
+            
+            // Check if it returned a proper value
+            if (isNil "_isComplete") then {
+                diag_log format ["AIR_OPS: Completion code for mission %1 returned nil", _missionID];
+                _isComplete = false;
+            };
+            
+            if (typeName _isComplete != "BOOL") then {
+                diag_log format ["AIR_OPS: Completion code for mission %1 returned non-boolean: %2", _missionID, _isComplete];
+                _isComplete = false;
+            };
+        } catch {
+            diag_log format ["AIR_OPS: Error executing completion code for mission %1: %2", _missionID, _exception];
+            _isComplete = false;
+        };
+        
+        // If complete, add to the list
         if (_isComplete) then {
-            _completedMissions pushBack [_missionID, true];
+            diag_log format ["AIR_OPS: Mission %1 (%2) completion detected!", _missionID, _missionType];
+            _completedMissions pushBack [_missionID, true]; // Mark for success
         };
     } forEach AIR_OP_activeMissions;
     
@@ -555,32 +750,41 @@ AIR_OP_fnc_completeMission = {
     AIR_OP_activeMissions deleteAt _missionIndex;
     
     // If aircraft still exists, start RTB or loiter waypoint
-    if (!isNull _aircraft) then {
-        [] spawn {
-            private _group = group driver _aircraft;
-            
-            if (!isNull _group) then {
-                // Clear existing waypoints
-                while {count waypoints _group > 0} do {
-                    deleteWaypoint [_group, 0];
-                };
-                
-                // Look for loiter marker
-                private _loiterPos = if (markerType "air_loiter" != "") then {
-                    getMarkerPos "air_loiter"
-                } else {
-                    getPos _aircraft
-                };
-                
-                // Add loiter waypoint
-                private _wp = _group addWaypoint [_loiterPos, 0];
-                _wp setWaypointType "LOITER";
-                _wp setWaypointLoiterType "CIRCLE_L";
-                _wp setWaypointLoiterRadius 800;
-                _wp setWaypointSpeed "NORMAL";
-            };
-        };
-    };
+		if (!isNull _aircraft) then {
+			private _currentAircraft = _aircraft; // Store local reference for spawn
+			[_currentAircraft] spawn {
+				params ["_aircraft"]; // Get aircraft in spawned context
+				
+				// Get the group safely
+				private _group = grpNull;
+				private _driver = driver _aircraft;
+				
+				if (!isNull _driver) then {
+					_group = group _driver;
+				};
+				
+				if (!isNull _group) then {
+					// Clear existing waypoints
+					while {count waypoints _group > 0} do {
+						deleteWaypoint [_group, 0];
+					};
+					
+					// Look for loiter marker
+					private _loiterPos = if (markerType "air_loiter" != "") then {
+						getMarkerPos "air_loiter"
+					} else {
+						getPos _aircraft
+					};
+					
+					// Add loiter waypoint
+					private _wp = _group addWaypoint [_loiterPos, 0];
+					_wp setWaypointType "LOITER";
+					_wp setWaypointLoiterType "CIRCLE_L";
+					_wp setWaypointLoiterRadius 800;
+					_wp setWaypointSpeed "NORMAL";
+				};
+			};
+		};
     
     true
 };

@@ -1,7 +1,7 @@
 // Air Operations UI
 // Handles UI creation and interaction for air mission planning
 
-// Open the Air Operations UI
+// Open the Air Operations UI - COMPLETE ENHANCED VERSION
 fnc_openAirOperationsUI = {
     if (dialog) then {closeDialog 0};
     createDialog "RscDisplayEmpty";
@@ -108,53 +108,53 @@ fnc_openAirOperationsUI = {
     [] call fnc_populateAircraftCombo;
     
     // ===== CREATE MAP CONTROL =====
-    // Create map control - CENTERED with panels on either side
+    // Create map control - CENTERED
     private _map = _display ctrlCreate ["RscMapControl", 9010];
     _map ctrlSetPosition [0.33 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.34 * safezoneW, 0.57 * safezoneH]; // Centered map
     _map ctrlSetBackgroundColor [0.969, 0.957, 0.949, 1.0];
     _map ctrlCommit 0;
     
     // ===== CREATE INFO PANELS - IMPROVED LAYOUT =====
-    // Create aircraft info panel - MOVED TO LEFT SIDE
+    // Create aircraft info panel - LEFT SIDE
     private _infoPanel = _display ctrlCreate ["RscText", 9100];
     _infoPanel ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.2 * safezoneW, 0.26 * safezoneH]; // Left panel
     _infoPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _infoPanel ctrlCommit 0;
     
-    // Create aircraft info text - MOVED TO LEFT SIDE
+    // Create aircraft info text - LEFT SIDE
     private _infoText = _display ctrlCreate ["RscStructuredText", 9101];
     _infoText ctrlSetPosition [0.125 * safezoneW + safezoneX, 0.16 * safezoneH + safezoneY, 0.19 * safezoneW, 0.24 * safezoneH]; // Left text area
     _infoText ctrlSetStructuredText parseText "Select an aircraft to view details.";
     _infoText ctrlCommit 0;
     
-    // Create target info panel - REMAINS ON RIGHT SIDE
+    // Create target info panel - RIGHT SIDE
     private _targetPanel = _display ctrlCreate ["RscText", 9110];
     _targetPanel ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.15 * safezoneH + safezoneY, 0.2 * safezoneW, 0.26 * safezoneH]; // Right panel
     _targetPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _targetPanel ctrlCommit 0;
     
-    // Create target info text - REMAINS ON RIGHT SIDE
+    // Create target info text - RIGHT SIDE
     private _targetText = _display ctrlCreate ["RscStructuredText", 9111];
     _targetText ctrlSetPosition [0.685 * safezoneW + safezoneX, 0.16 * safezoneH + safezoneY, 0.19 * safezoneW, 0.24 * safezoneH]; // Right text area
     _targetText ctrlSetStructuredText parseText "Select a target on the map.";
     _targetText ctrlCommit 0;
     
-    // ===== CREATE MISSION PANEL =====
-    // Create mission panel - REMAINS ON RIGHT, MOVED DOWN
+    // ===== CREATE MISSION PANEL - MOVED TO LEFT SIDE =====
+    // Create mission panel - MOVED to left side
     private _missionPanel = _display ctrlCreate ["RscText", 9200];
-    _missionPanel ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.2 * safezoneW, 0.3 * safezoneH]; // Right panel, taller for buttons
+    _missionPanel ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.2 * safezoneW, 0.3 * safezoneH]; // LEFT panel
     _missionPanel ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
     _missionPanel ctrlCommit 0;
     
     // Create mission panel title
     private _missionTitle = _display ctrlCreate ["RscText", 9201];
-    _missionTitle ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.2 * safezoneW, 0.04 * safezoneH]; // Right title
+    _missionTitle ctrlSetPosition [0.12 * safezoneW + safezoneX, 0.42 * safezoneH + safezoneY, 0.2 * safezoneW, 0.04 * safezoneH]; // LEFT title
     _missionTitle ctrlSetText "Available Missions";
     _missionTitle ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
     _missionTitle ctrlCommit 0;
     
-    // ===== CREATE MISSION BUTTONS =====
-    // Create mission buttons - MORE SPACE VERTICALLY
+    // ===== CREATE MISSION BUTTONS - MOVED TO LEFT SIDE =====
+    // Create mission buttons - in left panel
     private _buttonHeight = 0.04 * safezoneH;
     private _buttonMargin = 0.01 * safezoneH;
     private _buttonY = 0.47 * safezoneH + safezoneY;
@@ -162,9 +162,9 @@ fnc_openAirOperationsUI = {
     for "_i" from 0 to 4 do {
         private _button = _display ctrlCreate ["RscButton", 9300 + _i];
         _button ctrlSetPosition [
-            0.69 * safezoneW + safezoneX,
+            0.13 * safezoneW + safezoneX,           // MOVED left
             _buttonY + (_i * (_buttonHeight + _buttonMargin)),
-            0.18 * safezoneW, // Slightly narrower buttons
+            0.18 * safezoneW,                       // Slightly narrower
             _buttonHeight
         ];
         _button ctrlSetText "";
@@ -219,24 +219,52 @@ fnc_openAirOperationsUI = {
     _combatButton ctrlSetEventHandler ["ButtonClick", "[] call AIR_OP_fnc_setCombatMode"];
     _combatButton ctrlCommit 0;
     
-    // Create confirm mission button and cancel button (adjusted positions)
+    // ===== CREATE ENHANCED CONTROL BUTTONS =====
+    // Create cancel mission button - under target info
+    private _cancelMissionBtn = _display ctrlCreate ["RscButton", 9502];
+    _cancelMissionBtn ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.64 * safezoneH + safezoneY, 0.07 * safezoneW, 0.05 * safezoneH];
+    _cancelMissionBtn ctrlSetText "Cancel Mission";
+    _cancelMissionBtn ctrlSetBackgroundColor [0.8, 0.4, 0.1, 1]; // Orange
+    _cancelMissionBtn ctrlSetEventHandler ["ButtonClick", "
+        if (!isNull AIR_OP_selectedAircraft) then {
+            [AIR_OP_selectedAircraft] call AIR_OP_fnc_cancelMission;
+            [] call fnc_populateAircraftCombo;
+            [] call fnc_updateAircraftInfo;
+            [] call fnc_updateAvailableMissions;
+            systemChat 'Mission cancelled. Aircraft returning to standby.';
+        } else {
+            systemChat 'No aircraft selected.';
+        };
+    "];
+    _cancelMissionBtn ctrlCommit 0;
+    
+    // Create confirm mission button - right side
     private _confirmButton = _display ctrlCreate ["RscButton", 9500];
     _confirmButton ctrlSetPosition [0.76 * safezoneW + safezoneX, 0.64 * safezoneH + safezoneY, 0.12 * safezoneW, 0.05 * safezoneH];
     _confirmButton ctrlSetText "Confirm Mission";
-    _confirmButton ctrlSetBackgroundColor [0.2, 0.6, 0.2, 1];
+    _confirmButton ctrlSetBackgroundColor [0.2, 0.6, 0.2, 1]; // Green
     _confirmButton ctrlEnable false;
     _confirmButton ctrlSetEventHandler ["ButtonClick", "[] call fnc_confirmAirMission"];
     _confirmButton ctrlCommit 0;
     
-    private _cancelButton = _display ctrlCreate ["RscButton", 9501];
-    _cancelButton ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.64 * safezoneH + safezoneY, 0.07 * safezoneW, 0.05 * safezoneH];
-    _cancelButton ctrlSetText "Cancel";
-    _cancelButton ctrlSetBackgroundColor [0.6, 0.2, 0.2, 1];
-    _cancelButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
-    _cancelButton ctrlCommit 0;
+    // Create CLOSE UI button - separate from mission cancel
+    private _closeButton = _display ctrlCreate ["RscButton", 9501];
+    _closeButton ctrlSetPosition [0.76 * safezoneW + safezoneX, 0.70 * safezoneH + safezoneY, 0.12 * safezoneW, 0.04 * safezoneH];
+    _closeButton ctrlSetText "Close";
+    _closeButton ctrlSetBackgroundColor [0.4, 0.4, 0.4, 1]; // Gray
+    _closeButton ctrlSetEventHandler ["ButtonClick", "closeDialog 0"];
+    _closeButton ctrlCommit 0;
+    
+    // Create help button - right side, below close
+    private _helpButton = _display ctrlCreate ["RscButton", 9503];
+    _helpButton ctrlSetPosition [0.68 * safezoneW + safezoneX, 0.70 * safezoneH + safezoneY, 0.07 * safezoneW, 0.04 * safezoneH];
+    _helpButton ctrlSetText "Help";
+    _helpButton ctrlSetBackgroundColor [0.2, 0.5, 0.7, 1]; // Blue
+    _helpButton ctrlSetEventHandler ["ButtonClick", "[] call AIR_OP_help"];
+    _helpButton ctrlCommit 0;
     
     // ===== MAP INTERACTION =====
-    // Add map click handler - RENAMED FUNCTIONS to avoid conflicts
+    // Add map click handler
     _map ctrlAddEventHandler ["MouseButtonClick", {
         params ["_control", "_button", "_xPos", "_yPos", "_shift", "_ctrl", "_alt"];
         
@@ -303,6 +331,11 @@ fnc_openAirOperationsUI = {
         if (!isNull _opNameInput) then {
             AIR_OP_operationName = ctrlText _opNameInput;
         };
+        
+        // Reset selected location and task
+        MISSION_selectedLocation = -1;
+        MISSION_selectedHVT = -1;
+        MISSION_selectedTask = "";
     }];
     
     // Start UI update loop
@@ -461,10 +494,52 @@ fnc_updateAircraftInfo = {
         _crewText = "<t size='0.8'>(No crew)</t>";
     };
     
-    // Build full info text
+    // Format current mission status - IMPROVED
+    private _missionText = "";
+    if (_currentMission != "") then {
+        // Get mission display name
+        private _missionDisplayName = "";
+        {
+            if (_x select 0 == _currentMission) exitWith {
+                _missionDisplayName = _x select 1;
+            };
+        } forEach AIR_OP_MISSION_TYPES;
+        
+        // Get mission target name
+        private _missionTarget = "Unknown";
+        {
+            if (_x select 1 == AIR_OP_selectedAircraft) exitWith {
+                private _targetIndex = _x select 3;
+                private _targetType = _x select 4;
+                
+                if (_targetType == "LOCATION") then {
+                    if (_targetIndex >= 0 && _targetIndex < count MISSION_LOCATIONS) then {
+                        _missionTarget = (MISSION_LOCATIONS select _targetIndex) select 1;
+                    };
+                } else {
+                    if (_targetIndex >= 0 && _targetIndex < count HVT_TARGETS) then {
+                        _missionTarget = (HVT_TARGETS select _targetIndex) select 1;
+                    };
+                };
+            };
+        } forEach AIR_OP_activeMissions;
+        
+        _missionText = format [
+            "<t size='1.0' align='center' color='#ffdd44'>ACTIVE MISSION</t><br/>" +
+            "<t size='0.9' align='center'>%1</t><br/>" +
+            "<t size='0.8' align='center'>Target: %2</t><br/>",
+            _missionDisplayName,
+            _missionTarget
+        ];
+    } else {
+        _missionText = "<t size='0.9' align='center' color='#88ff88'>READY FOR ORDERS</t><br/>";
+    };
+    
+    // Build full info text - IMPROVED LAYOUT
     private _text = format [
         "<t size='1.2' align='center'>%1</t><br/>" +
         "<t align='center' size='0.9'>%2</t><br/><br/>" +
+        "%9<br/>" + // Mission status added here
         "<t><t color='#aaaaff'>Fuel:</t> <t color='%3'>%4%%</t> | <t color='#aaaaff'>Damage:</t> <t color='%5'>%6%%</t></t><br/><br/>" +
         "<t size='0.9'><t color='#aaaaff'>Weapons:</t></t><br/>%7<br/>" +
         "<t size='0.9'><t color='#aaaaff'>Crew:</t></t><br/>%8",
@@ -473,7 +548,8 @@ fnc_updateAircraftInfo = {
         _fuelColor, _fuelPercent,
         _damageColor, _damagePercent,
         _weaponsText,
-        _crewText
+        _crewText,
+        _missionText
     ];
     
     _infoText ctrlSetStructuredText parseText _text;
