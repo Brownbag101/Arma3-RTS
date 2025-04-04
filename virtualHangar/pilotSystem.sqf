@@ -486,15 +486,7 @@ HANGAR_fnc_assignPilotToStoredAircraft = {
     private _specialization = _pilotData select 4;
     private _currentAssignment = _pilotData select 5;
     
-    // Check if pilot is already assigned to another aircraft
-    if (!isNull _currentAssignment) then {
-        private _currentIndex = _currentAssignment getVariable ["HANGAR_storageIndex", -1];
-        if (_currentIndex != _aircraftIndex && _currentIndex >= 0) then {
-            systemChat format ["%1 is already assigned to another aircraft", _pilotName];
-            diag_log format ["PILOT: Cannot assign - already assigned to aircraft index %1", _currentIndex];
-            return false;
-        };
-    };
+    
     
     // Check if pilot is available in any other aircraft's crew lists
     private _alreadyAssigned = false;

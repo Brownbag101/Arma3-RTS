@@ -439,6 +439,33 @@ fnc_updateAircraftInfo = {
     
     _details params ["_type", "_displayName", "_specialization", "_fuel", "_damage", "_weaponsData", "_crew", "_currentMission"];
     
+    // Fallback weapon extraction if _weaponsData is empty
+    if (count _weaponsData == 0 && !isNull AIR_OP_selectedAircraft) then {
+        // === GAMEPLAY VARIABLE - Enable to show debug message about missing weapons data ===
+        // systemChat "DEBUG: No weapon data received, extracting directly from aircraft";
+        
+        private _extractedWeaponsData = [];
+        private _weapons = weapons AIR_OP_selectedAircraft;
+        
+        {
+            private _weapon = _x;
+            private _ammo = AIR_OP_selectedAircraft ammo _weapon;
+            private _weaponName = getText (configFile >> "CfgWeapons" >> _weapon >> "displayName");
+            
+            if (_weaponName == "") then {
+                // Try to extract name from class
+                _weaponName = (_weapon splitString "_") select ((count (_weapon splitString "_")) - 1);
+                _weaponName = [_weaponName, 0, 1] call BIS_fnc_toUpper + ([_weaponName, 1] call BIS_fnc_trimString);
+            };
+            
+            // Store in Hangar-compatible format [weapon, ammo, weaponName]
+            _extractedWeaponsData pushBack [_weapon, _ammo, _weaponName];
+        } forEach _weapons;
+        
+        // Replace empty weaponsData with our extracted data
+        _weaponsData = _extractedWeaponsData;
+    };
+    
     // Calculate fuel and damage color/text
     private _fuelPercent = round(_fuel * 100);
     private _fuelColor = switch (true) do {
@@ -457,28 +484,30 @@ fnc_updateAircraftInfo = {
     // Format weapons info
     private _weaponsText = "";
     {
-        _x params ["_weapon", "_ammo", "_maxAmmo"];
+        _x params ["_weapon", "_ammo"];
+        private _weaponName = "";
         
-        // Get weapon display name
-        private _weaponName = getText (configFile >> "CfgWeapons" >> _weapon >> "displayName");
-        if (_weaponName == "") then {
-            // Try to extract name from class
-            _weaponName = (_weapon splitString "_") select ((count (_weapon splitString "_")) - 1);
-            _weaponName = [_weaponName, 0, 1] call BIS_fnc_toUpper + ([_weaponName, 1] call BIS_fnc_trimString);
+        // Third parameter might be missing in some data structures
+        private _thirdParam = if (count _x > 2) then {_x select 2} else {""};
+        
+        // Check if the third parameter is a string (weaponName)
+        if (typeName _thirdParam == "STRING") then {
+            _weaponName = _thirdParam;
+        } else {
+            // Get weapon display name from config
+            _weaponName = getText (configFile >> "CfgWeapons" >> _weapon >> "displayName");
+            if (_weaponName == "") then {
+                // Try to extract name from class
+                _weaponName = (_weapon splitString "_") select ((count (_weapon splitString "_")) - 1);
+                _weaponName = [_weaponName, 0, 1] call BIS_fnc_toUpper + ([_weaponName, 1] call BIS_fnc_trimString);
+            };
         };
         
-        // Calculate ammo percentage and color
-        private _ammoPercent = round((_ammo / _maxAmmo) * 100);
-        private _ammoColor = switch (true) do {
-            case (_ammoPercent < 20): {"#ff4444"};
-            case (_ammoPercent < 50): {"#ffaa44"};
-            default {"#88ff88"};
-        };
-        
-        _weaponsText = _weaponsText + format ["<t size='0.8'><t color='#aaaaff'>%1:</t> <t color='%2'>%3%%</t></t><br/>", 
-            _weaponName, _ammoColor, _ammoPercent];
+        // Display weapons in Hangar-style format
+        _weaponsText = _weaponsText + format ["<t size='0.8'><t color='#aaaaff'>%1:</t> %2 rounds</t><br/>", 
+            _weaponName, _ammo];
     } forEach _weaponsData;
-    
+
     if (_weaponsText == "") then {
         _weaponsText = "<t size='0.8'>(No weapons)</t>";
     };
