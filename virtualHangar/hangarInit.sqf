@@ -347,6 +347,22 @@ if (!isNil "RTS_menuButtons") then {
     };
 };
 
+// to make sure aircraft monitoring is active
+[] spawn {
+    // Wait until system is initialized
+    waitUntil {!isNil "HANGAR_fnc_monitorDeployedAircraft"};
+    sleep 5;
+    
+    // Start monitoring loop that checks for destroyed aircraft too
+    while {true} do {
+        // Run both monitoring functions
+        call HANGAR_fnc_monitorDeployedAircraft;
+        call HANGAR_fnc_monitorAircraftHealth;
+        
+        sleep 30; // Check every 30 seconds
+    };
+};
+
 // Log completion of initialization
 systemChat "Virtual Hangar system initialized";
 diag_log "INIT: Virtual Hangar system initialization complete";

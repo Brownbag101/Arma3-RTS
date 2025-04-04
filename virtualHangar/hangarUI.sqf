@@ -669,6 +669,12 @@ HANGAR_fnc_initializeActionButtons = {
     diag_log "UI: Action buttons initialized";
 };
 
+// ===============================================================
+// ENHANCED PILOT ASSIGNMENT UI
+// ===============================================================
+// Replace the pilot selection UI functions in hangarUI.sqf with these improved versions
+// This enables multi-crew assignment and shows available positions
+
 // Function to open pilot selection UI
 HANGAR_fnc_openPilotSelectionUI = {
     if (isNull HANGAR_display) exitWith {
@@ -688,15 +694,50 @@ HANGAR_fnc_openPilotSelectionUI = {
         diag_log "UI: Cannot open pilot UI: No valid aircraft selected";
     };
     
+    // Double check for orphaned pilots in crew list
+    private _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
+    private _aircraftName = _record select 1;
+    private _crew = _record select 5;
+    private _validatedCrew = [];
+    
+    // Verify each crew member still exists in the roster
+    {
+        _x params ["_pilotIndex", "_role", "_turretPath"];
+        
+        if (_pilotIndex >= 0 && _pilotIndex < count HANGAR_pilotRoster) then {
+            // Pilot exists, keep in crew
+            _validatedCrew pushBack _x;
+        } else {
+            // Pilot no longer exists (was removed from roster)
+            diag_log format ["HANGAR: Removing invalid pilot index %1 from %2's crew", _pilotIndex, _aircraftName];
+            // Don't add to validated crew
+        };
+    } forEach _crew;
+    
+    // Update crew with validated list
+    if (count _validatedCrew != count _crew) then {
+        diag_log format ["HANGAR: Fixed crew list for %1: %2 entries removed", _aircraftName, (count _crew) - (count _validatedCrew)];
+        _record set [5, _validatedCrew];
+    };
+    
     // Ensure we have some pilots to assign
     if (count HANGAR_pilotRoster == 0) then {
         // Add some sample pilots if none exist
         call HANGAR_fnc_addSamplePilots;
     };
     
-    // Get aircraft type to check specialization
-    private _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
+    // Get aircraft data
+    _record = HANGAR_storedAircraft select HANGAR_selectedAircraftIndex;
     private _aircraftType = _record select 0;
+    _aircraftName = _record select 1;
+    _crew = _record select 5;
+    
+    // Get required crew count
+    private _requiredCrew = [_aircraftType] call HANGAR_fnc_getRequiredCrew;
+    private _currentCrew = count _crew;
+    
+    // Get available crew positions
+    private _availablePositions = [HANGAR_selectedAircraftIndex] call HANGAR_fnc_getAvailableCrewPositions;
     
     // Find aircraft category
     private _aircraftCategory = "";
@@ -726,27 +767,136 @@ HANGAR_fnc_openPilotSelectionUI = {
     _overlay ctrlCommit 0;
     HANGAR_uiControls pushBack _overlay;
     
-    // Title
-    private _title = HANGAR_display ctrlCreate ["RscText", 9840, _overlay];
+    // Title with aircraft info and crew requirements
+    private _title = HANGAR_display ctrlCreate ["RscStructuredText", 9840, _overlay];
     _title ctrlSetPosition [
         0,
         0,
         safezoneW * 0.4,
-        safezoneH * 0.05
+        safezoneH * 0.08
     ];
-    _title ctrlSetText "SELECT PILOT";
-    _title ctrlSetTextColor [1, 1, 1, 1];
+    _title ctrlSetStructuredText parseText format [
+        "<t align='center' size='1.2'>SELECT PILOT</t><br/>" +
+        "<t align='center' size='1.0'>%1 - Crew: %2/%3</t>",
+        _aircraftName,
+        _currentCrew,
+        _requiredCrew
+    ];
     _title ctrlSetBackgroundColor [0.2, 0.2, 0.4, 0.8];
-    _title ctrlSetFont "PuristaBold";
     _title ctrlCommit 0;
     
+    // Position selection combo box - NEW
+    private _posLabel = HANGAR_display ctrlCreate ["RscText", 9843, _overlay];
+    _posLabel ctrlSetPosition [
+        safezoneW * 0.02,
+        safezoneH * 0.09,
+        safezoneW * 0.1,
+        safezoneH * 0.03
+    ];
+    _posLabel ctrlSetText "Position:";
+    _posLabel ctrlCommit 0;
+    
+    private _posCombo = HANGAR_display ctrlCreate ["RscCombo", 9844, _overlay];
+    _posCombo ctrlSetPosition [
+        safezoneW * 0.13,
+        safezoneH * 0.09,
+        safezoneW * 0.25,
+        safezoneH * 0.03
+    ];
+    _posCombo ctrlCommit 0;
+    
+    // Add available positions to combo
+    {
+        _x params ["_role", "_turretPath"];
+        
+        private _posName = switch (_role) do {
+            case "driver": {"Pilot"};
+            case "gunner": {"Gunner"};
+            case "commander": {"Commander"};
+            case "turret": {format ["Turret %1", _turretPath]};
+            case "cargo": {"Crew"};
+            default {"Unknown"};
+        };
+        
+        private _idx = _posCombo lbAdd _posName;
+        _posCombo lbSetData [_idx, format ["%1|%2", _role, _turretPath]];
+    } forEach _availablePositions;
+    
+    // Default to first position if any are available
+    if (count _availablePositions > 0) then {
+        _posCombo lbSetCurSel 0;
+    } else {
+        // No positions left - show warning
+        _posCombo lbAdd "No positions available";
+        _posCombo lbSetCurSel 0;
+        _posCombo ctrlEnable false;
+    };
+    
+    // Existing crew list - NEW
+    private _crewLabel = HANGAR_display ctrlCreate ["RscText", 9845, _overlay];
+    _crewLabel ctrlSetPosition [
+        safezoneW * 0.02,
+        safezoneH * 0.13,
+        safezoneW * 0.36,
+        safezoneH * 0.03
+    ];
+    _crewLabel ctrlSetText "Current Crew:";
+    _crewLabel ctrlCommit 0;
+    
+    private _crewList = HANGAR_display ctrlCreate ["RscListbox", 9846, _overlay];
+    _crewList ctrlSetPosition [
+        safezoneW * 0.02,
+        safezoneH * 0.17,
+        safezoneW * 0.36,
+        safezoneH * 0.1
+    ];
+    _crewList ctrlSetBackgroundColor [0.1, 0.1, 0.1, 0.5];
+    _crewList ctrlCommit 0;
+    
+    // Add current crew to list
+    {
+        _x params ["_pilotIndex", "_role", "_turretPath"];
+        
+        if (_pilotIndex >= 0 && _pilotIndex < count HANGAR_pilotRoster) then {
+            private _pilotData = HANGAR_pilotRoster select _pilotIndex;
+            _pilotData params ["_name", "_rankIndex"];
+            
+            private _rank = [_rankIndex] call HANGAR_fnc_getPilotRankName;
+            private _roleText = switch (_role) do {
+                case "driver": {"Pilot"};
+                case "gunner": {"Gunner"};
+                case "commander": {"Commander"};
+                case "turret": {format ["Turret %1", _turretPath]};
+                case "cargo": {"Crew"};
+                default {"Unknown"};
+            };
+            
+            private _idx = _crewList lbAdd format ["%1: %2 %3", _roleText, _rank, _name];
+            _crewList lbSetData [_idx, str _pilotIndex];
+        };
+    } forEach _crew;
+    
+    if (count _crew == 0) then {
+        _crewList lbAdd "No crew assigned";
+    };
+    
     // Pilot listbox
+    private _pilotLabel = HANGAR_display ctrlCreate ["RscText", 9847, _overlay];
+    _pilotLabel ctrlSetPosition [
+        safezoneW * 0.02,
+        safezoneH * 0.28,
+        safezoneW * 0.36,
+        safezoneH * 0.03
+    ];
+    _pilotLabel ctrlSetText "Available Pilots:";
+    _pilotLabel ctrlCommit 0;
+    
     private _listbox = HANGAR_display ctrlCreate ["RscListbox", 9821, _overlay];
     _listbox ctrlSetPosition [
         safezoneW * 0.02,
-        safezoneH * 0.08,
+        safezoneH * 0.32,
         safezoneW * 0.36,
-        safezoneH * 0.42
+        safezoneH * 0.25
     ];
     _listbox ctrlSetBackgroundColor [0, 0, 0, 0.5];
     _listbox ctrlCommit 0;
@@ -758,9 +908,35 @@ HANGAR_fnc_openPilotSelectionUI = {
     {
         private _pilotData = _x;
         _pilotData params ["_name", "_rankIndex", "_missions", "_kills", "_specialization", "_aircraft"];
+        private _pilotIndex = _forEachIndex;
+        private _isAvailable = true;
         
-        // Check if pilot is not assigned and specialization matches (or is blank)
-        if (isNull _aircraft && (_specialization == _aircraftCategory || _aircraftCategory == "")) then {
+        // First check if pilot is not assigned to any aircraft
+        if (!isNull _aircraft) then {
+            _isAvailable = false;
+            diag_log format ["UI: Pilot %1 already assigned to aircraft", _name];
+        } else {
+            // Even if aircraft is null, double check all aircraft records
+            // to ensure pilot isn't in any crew lists
+            {
+                private _record = _x;
+                if (count _record >= 6) then {
+                    private _crew = _record select 5;
+                    {
+                        _x params ["_crewPilotIndex"];
+                        if (_crewPilotIndex == _pilotIndex) exitWith {
+                            _isAvailable = false;
+                            diag_log format ["UI: Pilot %1 found in crew list of another aircraft", _name];
+                        };
+                    } forEach _crew;
+                };
+                // If already found as unavailable, no need to check more
+                if (!_isAvailable) exitWith {};
+            } forEach HANGAR_storedAircraft;
+        };
+        
+        // Check specialization matches only if pilot is available
+        if (_isAvailable && (_specialization == _aircraftCategory || _aircraftCategory == "")) then {
             _availablePilots pushBack _forEachIndex;
             diag_log format ["UI: Found available pilot: %1 with specialization %2", _name, _specialization];
         };
@@ -776,7 +952,7 @@ HANGAR_fnc_openPilotSelectionUI = {
         private _infoText = HANGAR_display ctrlCreate ["RscText", 9842, _overlay];
         _infoText ctrlSetPosition [
             safezoneW * 0.02,
-            safezoneH * 0.52,
+            safezoneH * 0.58,
             safezoneW * 0.36,
             safezoneH * 0.05
         ];
@@ -824,6 +1000,9 @@ HANGAR_fnc_openPilotSelectionUI = {
         };
     }];
     
+    // Store the position combo reference for confirmation handler
+    HANGAR_positionCombo = _posCombo;
+    
     // Confirm button
     private _confirmBtn = HANGAR_display ctrlCreate ["RscButton", 9822, _overlay];
     _confirmBtn ctrlSetPosition [
@@ -841,12 +1020,40 @@ HANGAR_fnc_openPilotSelectionUI = {
         if (HANGAR_selectedPilotIndex >= 0) then {
             // Double check aircraft index is valid
             if (HANGAR_selectedAircraftIndex >= 0 && HANGAR_selectedAircraftIndex < count HANGAR_storedAircraft) then {
-                // Log the assignment for debugging
-                diag_log format ["UI: Confirming pilot assignment. Pilot: %1, Aircraft: %2", 
-                    HANGAR_selectedPilotIndex, HANGAR_selectedAircraftIndex];
+                // Get selected position from combo
+                private _posCombo = HANGAR_positionCombo;
+                private _posIndex = lbCurSel _posCombo;
+                private _posData = "";
                 
-                // Assign pilot to aircraft
-                [HANGAR_selectedPilotIndex, HANGAR_selectedAircraftIndex] call HANGAR_fnc_assignPilotToStoredAircraft;
+                if (_posIndex >= 0) then {
+                    _posData = _posCombo lbData _posIndex;
+                };
+                
+                // Parse position data
+                private _role = "driver"; // Default
+                private _turretPath = [];
+                
+                if (_posData != "") then {
+                    private _parts = _posData splitString "|";
+                    if (count _parts >= 1) then {
+                        _role = _parts select 0;
+                    };
+                    
+                    if (count _parts >= 2) then {
+                        private _pathStr = _parts select 1;
+                        // Parse turret path from string representation
+                        if (_pathStr != "[]") then {
+                            _turretPath = [parseNumber (_pathStr select [1, (count _pathStr) - 2])];
+                        };
+                    };
+                };
+                
+                // Log the assignment for debugging
+                diag_log format ["UI: Confirming pilot assignment. Pilot: %1, Aircraft: %2, Role: %3, TurretPath: %4", 
+                    HANGAR_selectedPilotIndex, HANGAR_selectedAircraftIndex, _role, _turretPath];
+                
+                // Assign pilot to aircraft with specific role
+                [HANGAR_selectedPilotIndex, HANGAR_selectedAircraftIndex, _role, _turretPath] call HANGAR_fnc_assignPilotToStoredAircraft;
             } else {
                 systemChat "Invalid aircraft selection";
                 diag_log format ["UI: Invalid aircraft index: %1", HANGAR_selectedAircraftIndex];
@@ -891,25 +1098,53 @@ HANGAR_fnc_openPilotSelectionUI = {
     diag_log "UI: Opened pilot selection UI";
 };
 
-// Function to close pilot selection UI
+// Enhanced function to close pilot selection UI
 HANGAR_fnc_closePilotSelectionUI = {
-    // Call the global force close function
-    call HANGAR_fnc_forceCloseAllUI;
+    // Clean up position combo reference
+    HANGAR_positionCombo = nil;
     
-    // Extra attempt to explicitly delete the overlay
-    private _display = findDisplay 312; // Zeus display
+    // Log what we're attempting to close
+    diag_log "UI: Attempting to close pilot selection UI - detailed cleanup";
+    
+    // Explicitly try to delete controls by ID
+    private _display = findDisplay 312;
     if (!isNull _display) then {
+        // Main overlay
         private _overlay = _display displayCtrl 9820;
         if (!isNull _overlay) then {
             ctrlDelete _overlay;
-            diag_log "UI: Deleted pilot selection overlay specifically";
         };
+        
+        // Explicitly delete all child controls (even if parent is deleted, sometimes children remain)
+        {
+            private _ctrl = _display displayCtrl _x;
+            if (!isNull _ctrl) then {
+                ctrlDelete _ctrl;
+                diag_log format ["UI: Explicitly deleted control ID: %1", _x];
+            };
+        } forEach [9821, 9822, 9823, 9840, 9841, 9842, 9843, 9844, 9845, 9846, 9847];
     };
+    
+    // Clean up from HANGAR_uiControls array too
+    private _controlsToRemove = [];
+    {
+        // Check if control is part of pilot UI
+        private _ctrl = _x;
+        private _idc = ctrlIDC _ctrl;
+        if (_idc >= 9820 && _idc <= 9850) then {
+            ctrlDelete _ctrl;
+            _controlsToRemove pushBack _ctrl;
+        };
+    } forEach HANGAR_uiControls;
+    
+    // Remove from array
+    HANGAR_uiControls = HANGAR_uiControls - _controlsToRemove;
     
     // Reset flag
     HANGAR_assigningPilot = false;
     HANGAR_selectedPilotIndex = -1;
-    diag_log "UI: Closed pilot selection UI - flags reset";
+    
+    diag_log "UI: Closed pilot selection UI - flags reset and controls deleted";
 };
 
 // Function to open deploy position selection UI

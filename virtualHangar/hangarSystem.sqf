@@ -339,7 +339,7 @@ HANGAR_fnc_viewAircraft = {
     HANGAR_viewedAircraft
 };
 
-// Function to deploy aircraft (fixed version with proper AI handling)
+// Enhanced aircraft deployment function with all fixes incorporated
 HANGAR_fnc_deployAircraft = {
     params ["_index", "_deployPosIndex"];
     
@@ -349,6 +349,9 @@ HANGAR_fnc_deployAircraft = {
         diag_log format ["HANGAR: Invalid aircraft index for deployment: %1", _index];
         objNull
     };
+    
+    // Validate crew before deployment
+    [_index] call HANGAR_fnc_validateAircraftCrew;
     
     // Validate deploy position
     if (_deployPosIndex < 0 || _deployPosIndex >= count HANGAR_deployPositions) exitWith {
@@ -437,7 +440,7 @@ HANGAR_fnc_deployAircraft = {
                 _aircraft setAmmo [_weapon, _ammo];
             } forEach _weaponsData;
             
-            // Add to Zeus
+            // Add to Zeus - CRITICAL FIX FOR EDITABILITY
             private _curator = getAssignedCuratorLogic player;
             if (!isNull _curator) then {
                 _curator addCuratorEditableObjects [[_aircraft], true];
@@ -450,7 +453,28 @@ HANGAR_fnc_deployAircraft = {
         // Mark as deployed
         _aircraft setVariable ["HANGAR_deployed", true, true];
         _aircraft setVariable ["HANGAR_storageIndex", _index, true];
-        _aircraft setVariable ["HANGAR_managedAircraft", true, true];
+        
+        // CRITICAL CHANGE: Flag as editable by Zeus
+        _aircraft setVariable ["HANGAR_managedAircraft", false, true];  // Changed to FALSE
+        
+        // Add destruction event handler
+        _aircraft addEventHandler ["Killed", {
+            params ["_unit", "_killer"];
+            [_unit] call HANGAR_fnc_onAircraftDestroyed;
+        }];
+        
+        // Also add damage handler for high damage
+        _aircraft addEventHandler ["Dammaged", {
+            params ["_unit", "_selection", "_damage", "_hitIndex", "_hitPoint", "_shooter", "_projectile"];
+            
+            // If overall damage is high but not quite destroyed
+            if (damage _unit > 0.85 && alive _unit) then {
+                [_unit] call HANGAR_fnc_onAircraftDestroyed;
+            };
+        }];
+        
+        // Set up ejection handling for the aircraft
+        [_aircraft, _crew] call HANGAR_fnc_setupAircraftDamageHandlers;
     };
     
     // IMPORTANT: Update storage record with deployment status
@@ -462,42 +486,64 @@ HANGAR_fnc_deployAircraft = {
         HANGAR_deployedAircraft pushBack _aircraft;
     };
     
-    // Create crew if needed
-    if (count _crew > 0 && {count (crew _aircraft) == 0}) then {
-        {
-            _x params ["_pilotIndex", "_role", "_turretPath"];
-            if (_pilotIndex >= 0) then {
-                // Deploy with active AI
-                [_pilotIndex, _aircraft, _role, _turretPath, true] spawn HANGAR_fnc_assignPilotToAircraft;
-                sleep 0.3; // Small delay between crew assignments
+    // Create crew if needed - WITHOUT SLEEP IN MAIN THREAD
+    if (count _crew > 0) then {
+        // Use a proper spawn to handle crew creation with delays
+        [_crew, _aircraft] spawn {
+            params ["_crew", "_aircraft"];
+            
+            // Make sure aircraft still exists
+            if (isNull _aircraft) exitWith {
+                diag_log "HANGAR: Aircraft no longer exists for crew assignment";
             };
-        } forEach _crew;
-    } else {
-        // If crew already exists, just make sure AI is enabled
-        {
-            private _unit = _x;
-            if (_unit getVariable ["HANGAR_isPilot", false]) then {
-                // Enable all AI systems for deployed pilots - FIXED SYNTAX
-                {
-                    _unit enableAI _x;
-                } forEach ["TARGET", "AUTOTARGET", "MOVE", "ANIM", "FSM"];
-                
-                _unit setBehaviour "AWARE";
-                _unit setCombatMode "YELLOW";
-            };
-        } forEach crew _aircraft;
+            
+            // Assign each crew member with delay
+            {
+                _x params ["_pilotIndex", "_role", "_turretPath"];
+                if (_pilotIndex >= 0) then {
+                    // Directly call function - already inside a spawn
+                    [_pilotIndex, _aircraft, _role, _turretPath, true] call HANGAR_fnc_assignPilotToAircraft;
+                    sleep 0.3; // Safe to sleep inside a spawn
+                };
+            } forEach _crew;
+            
+            // Log completion
+            diag_log format ["HANGAR: Completed crew assignment for %1", _aircraft];
+        };
     };
     
-    // Set up loiter waypoint for the deployed aircraft
-    [_aircraft] spawn {
-        params ["_aircraft"];
+    // Set up loiter waypoint for the deployed aircraft - WITH RETRY
+    [_aircraft, _index] spawn {
+        params ["_aircraft", "_storageIndex"];
+        private ["_retryCount", "_success"];
         
-        // Small delay to ensure crew is fully in place
-        sleep 3; 
+        _retryCount = 0;
+        _success = false;
         
-        if (!isNull _aircraft) then {
+        diag_log format ["HANGAR: Starting waypoint setup for aircraft %1", _aircraft];
+        
+        // Keep retrying until successful or max retries reached
+        while {!_success && _retryCount < 5} do {
+            // Small delay to ensure crew is fully in place
+            sleep 3 + _retryCount; // Increasing delay with retries
+            
+            if (isNull _aircraft) exitWith {
+                diag_log "HANGAR: Aircraft is null, can't set waypoint";
+            };
+            
+            diag_log format ["HANGAR: Waypoint setup attempt %1 for %2", _retryCount + 1, _aircraft];
+            
             // Get the group from vehicle
             private _driver = driver _aircraft;
+            if (isNull _driver) then {
+                // Try to get any crew member as a fallback
+                private _crew = crew _aircraft;
+                if (count _crew > 0) then {
+                    _driver = _crew select 0;
+                    diag_log format ["HANGAR: Using alternate crew member as driver: %1", _driver];
+                };
+            };
+            
             if (!isNull _driver) then {
                 private _group = group _driver;
                 
@@ -520,7 +566,13 @@ HANGAR_fnc_deployAircraft = {
                         _loiterPos set [2, 300]; // Set altitude to 300m
                     };
                     
-                    // Create loiter waypoint
+                    // First add a MOVE waypoint to ensure initial movement
+                    private _moveWP = _group addWaypoint [_loiterPos, 0];
+                    _moveWP setWaypointType "MOVE";
+                    _moveWP setWaypointSpeed "NORMAL";
+                    _moveWP setWaypointStatements ["true", "vehicle this engineOn true; (vehicle this) flyInHeight 300;"];
+                    
+                    // Then add the loiter waypoint
                     private _wp = _group addWaypoint [_loiterPos, 0];
                     _wp setWaypointType "LOITER";
                     _wp setWaypointLoiterType "CIRCLE";
@@ -528,16 +580,18 @@ HANGAR_fnc_deployAircraft = {
                     _wp setWaypointSpeed "LIMITED";
                     _wp setWaypointBehaviour "SAFE";
                     
-                    // Re-enable AI for all crew - FIXED SYNTAX
+                    // Re-enable AI for all crew
                     {
                         private _crewMember = _x;
                         if (_crewMember getVariable ["HANGAR_isPilot", false]) then {
+                            // Enable ALL AI functions one by one
                             {
                                 _crewMember enableAI _x;
-                            } forEach ["TARGET", "AUTOTARGET", "MOVE", "ANIM", "FSM"];
+                            } forEach ["TARGET", "AUTOTARGET", "MOVE", "ANIM", "FSM", "PATH", "TEAMSWITCH", "COVER", "SUPPRESSION", "AIMINGERROR"];
                             
                             _crewMember setBehaviour "AWARE";
                             _crewMember setCombatMode "YELLOW";
+                            _crewMember allowFleeing 0;
                             
                             diag_log format ["HANGAR: Re-enabled AI for pilot: %1", _crewMember];
                         };
@@ -546,19 +600,37 @@ HANGAR_fnc_deployAircraft = {
                     // Set group behavior
                     _group setBehaviour "AWARE";
                     _group setCombatMode "YELLOW";
+                    _group allowFleeing 0;
                     
-                    // Start the engine - explicitly
+                    // Start the engine - explicitly in multiple ways
                     _aircraft engineOn true;
-					
-					[] call HANGAR_fnc_fixAllDeployedAircraft;
+                    _driver action ["engineOn", _aircraft];
                     
-                    diag_log format ["HANGAR: Created loiter waypoint for deployed aircraft: %1", _aircraft];
+                    // Force flying height
+                    _aircraft flyInHeight 300;
+                    
+                    // Mark success
+                    _success = true;
+                    
+                    // Update status in storage record
+                    if (_storageIndex >= 0 && _storageIndex < count HANGAR_storedAircraft) then {
+                        (HANGAR_storedAircraft select _storageIndex) set [9, true]; // Set custom "waypoint_set" flag
+                    };
+                    
+                    diag_log format ["HANGAR: Successfully created waypoints for %1", _aircraft];
                 } else {
-                    diag_log "HANGAR: Cannot find group for aircraft pilot";
+                    diag_log format ["HANGAR: Cannot find group for driver %1", _driver];
+                    _retryCount = _retryCount + 1;
                 };
             } else {
                 diag_log "HANGAR: No driver found for deployed aircraft";
+                _retryCount = _retryCount + 1;
             };
+        };
+        
+        if (!_success) then {
+            systemChat "Warning: Aircraft may not fly properly. Try redeploying.";
+            diag_log "HANGAR: Failed to set up waypoints after multiple attempts";
         };
     };
     
@@ -926,9 +998,22 @@ HANGAR_fnc_monitorDeployedAircraft = {
                 // Aircraft is marked as deployed but instance is gone
                 _record set [7, false]; // Mark as not deployed
                 diag_log format ["HANGAR: Fixed orphaned deployment record for: %1", _displayName];
+            } else {
+                // Update fuel and damage in the record from the actual aircraft
+                _record set [2, fuel _deployedInstance]; // Update fuel
+                _record set [3, damage _deployedInstance]; // Update damage
+                
+                // Check if seriously damaged
+                if (damage _deployedInstance > 0.9 || !alive _deployedInstance) then {
+                    // Process as destroyed
+                    [_deployedInstance] call HANGAR_fnc_onAircraftDestroyed;
+                };
             };
         };
     };
+    
+    // Also run the health monitor to check for destroyed aircraft
+    call HANGAR_fnc_monitorAircraftHealth;
     
     // Check deployed aircraft against storage records
     {
@@ -947,6 +1032,9 @@ HANGAR_fnc_monitorDeployedAircraft = {
             diag_log format ["HANGAR: Orphaned deployed aircraft with invalid storage index: %1", _aircraft];
         };
     } forEach HANGAR_deployedAircraft;
+    
+    // Periodically clean up invalid crew entries
+    call HANGAR_fnc_cleanupInvalidCrewEntries;
     
     // Log status
     diag_log format ["HANGAR: Monitor - Deployed aircraft count: %1", count HANGAR_deployedAircraft];
@@ -1203,6 +1291,319 @@ HANGAR_fnc_fixAllDeployedAircraftWithDelay = {
     };
     
     true
+};
+
+// Function to handle aircraft destruction
+HANGAR_fnc_onAircraftDestroyed = {
+    params ["_aircraft"];
+    
+    // Check if this is a managed aircraft
+    private _storageIndex = _aircraft getVariable ["HANGAR_storageIndex", -1];
+    if (_storageIndex < 0) exitWith {
+        diag_log format ["HANGAR: Destroyed aircraft %1 is not managed", _aircraft];
+    };
+    
+    // Get aircraft data
+    private _record = HANGAR_storedAircraft select _storageIndex;
+    _record params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew", "_customData", "_isDeployed", "_deployedInstance"];
+    
+    // Already processed?
+    if (!_isDeployed || isNull _deployedInstance) exitWith {
+        diag_log format ["HANGAR: Aircraft %1 already marked as not deployed", _displayName];
+    };
+    
+    // Store crew info before we remove the aircraft
+    private _crewData = +_crew; // Make a copy
+    
+    // CRITICAL: REMOVE AIRCRAFT FROM STORAGE
+    HANGAR_storedAircraft deleteAt _storageIndex;
+    
+    // Remove from deployed tracking array
+    HANGAR_deployedAircraft = HANGAR_deployedAircraft - [_aircraft];
+    
+    // Notification to player
+    private _msg = format ["Aircraft Lost: %1 has been destroyed and removed from inventory!", _displayName];
+    systemChat _msg;
+    
+    // More visible hint with details
+    hint parseText format [
+        "<t size='1.2' color='#ff5555' align='center'>Aircraft Lost</t><br/><br/>" +
+        "<t align='center'>%1</t><br/><br/>" +
+        "<t size='0.8' align='center'>The aircraft has been destroyed in action and removed from inventory</t>",
+        _displayName
+    ];
+    
+    // Update any UI if open
+    if (!isNull findDisplay 312 && !isNull (findDisplay 312 displayCtrl 9802)) then {
+        call HANGAR_fnc_refreshUI;
+    };
+    
+    diag_log format ["HANGAR: Removed destroyed aircraft %1 from inventory", _displayName];
+    
+    // Handle crew casualties - assume all KIA unless evidence of ejection
+    {
+        _x params ["_pilotIndex"];
+        
+        if (_pilotIndex >= 0 && _pilotIndex < count HANGAR_pilotRoster) then {
+            // Check if pilot managed to eject
+            private _pilotUnit = objNull;
+            {
+                if ((_x getVariable ["HANGAR_pilotIndex", -1]) == _pilotIndex) then {
+                    _pilotUnit = _x;
+                };
+            } forEach allUnits;
+            
+            // Assume KIA unless unit is alive and outside aircraft
+            private _survived = false;
+            
+            if (!isNull _pilotUnit && alive _pilotUnit && (vehicle _pilotUnit == _pilotUnit)) then {
+                // Pilot ejected and is alive on the ground
+                // Set as available in roster but don't delete
+                (HANGAR_pilotRoster select _pilotIndex) set [5, objNull];
+                systemChat format ["Pilot %1 ejected successfully and will return to duty", (HANGAR_pilotRoster select _pilotIndex) select 0];
+                _survived = true;
+            } else {
+                // Pilot is KIA - remove from roster
+                private _pilotName = (HANGAR_pilotRoster select _pilotIndex) select 0;
+                private _pilotRank = [(HANGAR_pilotRoster select _pilotIndex) select 1] call HANGAR_fnc_getPilotRankName;
+                systemChat format ["%1 %2 was killed in action", _pilotRank, _pilotName];
+                
+                // Remove from roster with confirmation
+                diag_log format ["HANGAR: Removing KIA pilot %1 %2 (index %3) from roster", _pilotRank, _pilotName, _pilotIndex];
+                HANGAR_pilotRoster deleteAt _pilotIndex;
+                
+                // Re-index remaining crew in this and other aircraft
+                // This is CRITICAL - we need to adjust indices for all remaining crew
+                // Pilots with higher indices need to be decremented
+                {
+                    if (_x getVariable ["HANGAR_isPilot", false]) then {
+                        private _storedIndex = _x getVariable ["HANGAR_pilotIndex", -1];
+                        if (_storedIndex > _pilotIndex) then {
+                            // This pilot needs to be reindexed
+                            _x setVariable ["HANGAR_pilotIndex", _storedIndex - 1, true];
+                            diag_log format ["HANGAR: Adjusted pilot unit index from %1 to %2", _storedIndex, _storedIndex - 1];
+                        };
+                    };
+                } forEach allUnits;
+                
+                // Process all aircraft records to update crew indices
+                for "_i" from 0 to ((count HANGAR_storedAircraft) - 1) do {
+                    private _record = HANGAR_storedAircraft select _i;
+                    if (count _record >= 6) then {
+                        private _aircraftCrew = _record select 5;
+                        
+                        // Process each crew assignment
+                        for "_j" from 0 to ((count _aircraftCrew) - 1) do {
+                            private _crewEntry = _aircraftCrew select _j;
+                            if (count _crewEntry > 0) then {
+                                private _crewPilotIndex = _crewEntry select 0;
+                                
+                                if (_crewPilotIndex == _pilotIndex) then {
+                                    // This crew entry refers to the dead pilot - remove it
+                                    _aircraftCrew deleteAt _j;
+                                    diag_log format ["HANGAR: Removed dead pilot reference from aircraft %1", _i];
+                                    break; // Exit loop as we modified the array
+                                } else {
+                                    if (_crewPilotIndex > _pilotIndex) then {
+                                        // Decrement the index
+                                        _crewEntry set [0, _crewPilotIndex - 1];
+                                        diag_log format ["HANGAR: Adjusted crew reference from %1 to %2 in aircraft %3", 
+                                            _crewPilotIndex, _crewPilotIndex - 1, _i];
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+            
+            // Log pilot status
+            diag_log format ["HANGAR: Pilot index %1 %2", _pilotIndex, if (_survived) then {"survived"} else {"KIA"}];
+        };
+    } forEach _crewData;
+    
+    // Update storage indices for all aircraft after this one
+    {
+        private _aircraft = _x;
+        private _currentIndex = _aircraft getVariable ["HANGAR_storageIndex", -1];
+        
+        if (_currentIndex > _storageIndex) then {
+            // This aircraft's index needs to be decremented
+            _aircraft setVariable ["HANGAR_storageIndex", _currentIndex - 1, true];
+            diag_log format ["HANGAR: Updated storage index for %1 from %2 to %3", _aircraft, _currentIndex, _currentIndex - 1];
+        };
+    } forEach HANGAR_deployedAircraft;
+    
+    // Refresh UI if open
+    if (!isNull findDisplay 312 && !isNull (findDisplay 312 displayCtrl 9802)) then {
+        call HANGAR_fnc_refreshUI;
+    };
+};
+
+// Function to monitor aircraft health
+HANGAR_fnc_monitorAircraftHealth = {
+    // Clean up invalid entries first
+    HANGAR_deployedAircraft = HANGAR_deployedAircraft - [objNull];
+    
+    // Check each deployed aircraft
+    {
+        private _aircraft = _x;
+        
+        // If destroyed (very damaged or actually null)
+        if (isNull _aircraft || !alive _aircraft || damage _aircraft > 0.9) then {
+            // Process destruction if not already processed
+            [_aircraft] call HANGAR_fnc_onAircraftDestroyed;
+        };
+    } forEach HANGAR_deployedAircraft;
+};
+
+// Function to get available crew positions for an aircraft
+HANGAR_fnc_getAvailableCrewPositions = {
+    params ["_aircraftIndex"];
+    
+    if (_aircraftIndex < 0 || _aircraftIndex >= count HANGAR_storedAircraft) exitWith {[]};
+    
+    // Get aircraft record
+    private _record = HANGAR_storedAircraft select _aircraftIndex;
+    _record params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew", "_customData", "_isDeployed"];
+    
+    // Get required crew count
+    private _requiredCrew = [_type] call HANGAR_fnc_getRequiredCrew;
+    
+    // Get already filled positions
+    private _filledPositions = [];
+    {
+        _x params ["_pilotIndex", "_role", "_turretPath"];
+        _filledPositions pushBack [_role, _turretPath];
+    } forEach _crew;
+    
+    // Define standard positions - this will vary based on aircraft
+    private _allPositions = [
+        ["driver", []],          // Pilot
+        ["gunner", []],          // Main gunner
+        ["commander", []],       // Commander position
+        ["turret", [0]],         // Turret 1
+        ["turret", [1]],         // Turret 2
+        ["turret", [2]],         // Turret 3
+        ["cargo", 0]             // Cargo (generic crew)
+    ];
+    
+    // Filter to remove filled positions
+    private _availablePositions = [];
+    {
+        if !(_x in _filledPositions) then {
+            _availablePositions pushBack _x;
+        };
+    } forEach _allPositions;
+    
+    // Only return enough positions to meet requirements
+    private _neededPositions = _requiredCrew - count _crew;
+    if (_neededPositions <= 0) exitWith {[]};
+    
+    _availablePositions resize (_neededPositions min count _availablePositions);
+    _availablePositions
+};
+
+// Add this to hangarSystem.sqf
+// Updated monitoring function to check for destroyed aircraft
+HANGAR_fnc_monitorDeployedAircraft = {
+    // Clean up invalid entries from deployment array
+    HANGAR_deployedAircraft = HANGAR_deployedAircraft - [objNull];
+    
+    // Check status of deployed aircraft in storage records
+    for "_i" from 0 to ((count HANGAR_storedAircraft) - 1) do {
+        private _record = HANGAR_storedAircraft select _i;
+        _record params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew", "_customData", "_isDeployed", "_deployedInstance"];
+        
+        if (_isDeployed) then {
+            // Check if the deployed instance is still valid
+            if (isNull _deployedInstance) then {
+                // Aircraft is marked as deployed but instance is gone
+                _record set [7, false]; // Mark as not deployed
+                diag_log format ["HANGAR: Fixed orphaned deployment record for: %1", _displayName];
+            } else {
+                // Update fuel and damage in the record from the actual aircraft
+                _record set [2, fuel _deployedInstance]; // Update fuel
+                _record set [3, damage _deployedInstance]; // Update damage
+                
+                // Check if seriously damaged
+                if (damage _deployedInstance > 0.9 || !alive _deployedInstance) then {
+                    // Process as destroyed
+                    [_deployedInstance] call HANGAR_fnc_onAircraftDestroyed;
+                };
+            };
+        };
+    };
+    
+    // Also run the health monitor to check for destroyed aircraft
+    call HANGAR_fnc_monitorAircraftHealth;
+    
+    // Log status
+    diag_log format ["HANGAR: Monitor - Deployed aircraft count: %1", count HANGAR_deployedAircraft];
+};
+
+// Function to clean up invalid crew entries
+HANGAR_fnc_cleanupInvalidCrewEntries = {
+    // Process all stored aircraft
+    for "_i" from 0 to ((count HANGAR_storedAircraft) - 1) do {
+        [_i] call HANGAR_fnc_validateAircraftCrew;
+    };
+    
+    // This should be called periodically, e.g., from monitoring functions
+};
+
+// Function to validate aircraft crew
+HANGAR_fnc_validateAircraftCrew = {
+    params ["_aircraftIndex"];
+    
+    if (_aircraftIndex < 0 || _aircraftIndex >= count HANGAR_storedAircraft) exitWith {
+        diag_log format ["HANGAR: Invalid aircraft index for crew validation: %1", _aircraftIndex];
+        false
+    };
+    
+    // Get aircraft record
+    private _record = HANGAR_storedAircraft select _aircraftIndex;
+    private _aircraftName = _record select 1;
+    private _crew = _record select 5;
+    private _validatedCrew = [];
+    private _hasChanges = false;
+    
+    // Verify each crew member still exists in the roster
+    {
+        _x params ["_pilotIndex", "_role", "_turretPath"];
+        
+        if (_pilotIndex >= 0 && _pilotIndex < count HANGAR_pilotRoster) then {
+            // Additional check: make sure pilot isn't already assigned to another deployed aircraft
+            private _pilotData = HANGAR_pilotRoster select _pilotIndex;
+            private _currentAircraft = _pilotData select 5;
+            
+            if (isNull _currentAircraft || 
+                {_currentAircraft getVariable ["HANGAR_storageIndex", -1] == _aircraftIndex}) then {
+                // Pilot is available or already assigned to this aircraft
+                _validatedCrew pushBack _x;
+            } else {
+                // Pilot is assigned to a different aircraft
+                diag_log format ["HANGAR: Pilot %1 already assigned to another aircraft", _pilotData select 0];
+                _hasChanges = true;
+                // Don't add to validated crew
+            };
+        } else {
+            // Pilot no longer exists (was removed from roster)
+            diag_log format ["HANGAR: Invalid pilot index %1 for %2", _pilotIndex, _aircraftName];
+            _hasChanges = true;
+            // Don't add to validated crew
+        };
+    } forEach _crew;
+    
+    // Update crew with validated list if there were changes
+    if (_hasChanges) then {
+        diag_log format ["HANGAR: Fixed crew list for %1: %2 entries removed", 
+            _aircraftName, (count _crew) - (count _validatedCrew)];
+        _record set [5, _validatedCrew];
+    };
+    
+    // Return if any changes were made
+    _hasChanges
 };
 
 // Call initialization a few seconds after startup

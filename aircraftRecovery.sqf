@@ -194,7 +194,7 @@ if (count _aircraftInfo > 0) then {
                 private _unitName = name _unit;
                 
                 // CRITICAL FIX: Use the correct specialization!
-                private _pilotIndex = [_unit, _specialization] call fnc_addPilotToHangarRoster;
+                private _pilotIndex = [_unit, _specialization] call HANGAR_fnc_addExistingPilotToRoster;
                 
                 if (_pilotIndex >= 0) then {
                     diag_log format ["RECOVERY: Added/found pilot %1 with index %2 and specialization %3", 

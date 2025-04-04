@@ -480,14 +480,73 @@ HANGAR_fnc_assignPilotToStoredAircraft = {
     private _record = HANGAR_storedAircraft select _aircraftIndex;
     _record params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew", "_customData", "_isDeployed", "_deployedInstance"];
     
-    // Check if pilot is available and has matching specialization
-    private _check = [_pilotIndex, _type] call HANGAR_fnc_isPilotAvailableForAircraft;
-    _check params ["_available", "_message"];
+    // Get the pilot data
+    private _pilotData = HANGAR_pilotRoster select _pilotIndex;
+    private _pilotName = _pilotData select 0;
+    private _specialization = _pilotData select 4;
+    private _currentAssignment = _pilotData select 5;
     
-    if (!_available) exitWith {
-        systemChat _message;
-        diag_log format ["PILOT: Cannot assign to aircraft: %1", _message];
-        false
+    // Check if pilot is already assigned to another aircraft
+    if (!isNull _currentAssignment) then {
+        private _currentIndex = _currentAssignment getVariable ["HANGAR_storageIndex", -1];
+        if (_currentIndex != _aircraftIndex && _currentIndex >= 0) then {
+            systemChat format ["%1 is already assigned to another aircraft", _pilotName];
+            diag_log format ["PILOT: Cannot assign - already assigned to aircraft index %1", _currentIndex];
+            return false;
+        };
+    };
+    
+    // Check if pilot is available in any other aircraft's crew lists
+    private _alreadyAssigned = false;
+    for "_i" from 0 to ((count HANGAR_storedAircraft) - 1) do {
+        if (_i != _aircraftIndex) then {
+            private _otherRecord = HANGAR_storedAircraft select _i;
+            private _otherCrew = _otherRecord select 5;
+            
+            {
+                _x params ["_crewPilotIndex"];
+                if (_crewPilotIndex == _pilotIndex) exitWith {
+                    _alreadyAssigned = true;
+                    systemChat format ["%1 is already in the crew of another aircraft", _pilotName];
+                    diag_log format ["PILOT: Cannot assign - found in crew of aircraft %1", _i];
+                };
+            } forEach _otherCrew;
+            
+            if (_alreadyAssigned) exitWith {};
+        };
+    };
+    
+    if (_alreadyAssigned) exitWith { false };
+    
+    // Check if specialization matches
+    private _aircraftCategory = "";
+    {
+        _x params ["_category", "_aircraftList"];
+        
+        {
+            _x params ["_className"];
+            if (_className == _type) exitWith {
+                _aircraftCategory = _category;
+                diag_log format ["PILOT: Aircraft %1 is category: %2", _type, _category];
+            };
+        } forEach _aircraftList;
+        
+        if (_aircraftCategory != "") exitWith {};
+    } forEach HANGAR_aircraftTypes;
+    
+    if (_aircraftCategory != "" && _specialization != "" && _specialization != _aircraftCategory) then {
+        private _proceed = false;
+        
+        // Ask if player wants to proceed with wrong specialization
+        systemChat format ["WARNING: %1 is specialized in %2, not %3", _pilotName, _specialization, _aircraftCategory];
+        
+        // For now, allow it as a failsafe but warn the player
+        _proceed = true;
+        
+        if (!_proceed) exitWith {
+            diag_log format ["PILOT: Assignment canceled - specialization mismatch"];
+            false
+        };
     };
     
     // Add pilot to aircraft crew if not already there
@@ -503,15 +562,47 @@ HANGAR_fnc_assignPilotToStoredAircraft = {
     if (_existingCrewIndex == -1) then {
         private _pilotAssignment = [_pilotIndex, _role, _turretPath];
         _crew pushBack _pilotAssignment;
+        diag_log format ["PILOT: Added new crew entry for pilot %1", _pilotName];
+    } else {
+        // Update existing entry
+        _crew set [_existingCrewIndex, [_pilotIndex, _role, _turretPath]];
+        diag_log format ["PILOT: Updated existing crew entry for pilot %1", _pilotName];
     };
     
-    systemChat format ["%1 assigned to %2", 
-        (HANGAR_pilotRoster select _pilotIndex) select 0, 
-        _displayName
+    // CRITICAL: Update the pilot's aircraft reference in the roster
+    if (!isNull HANGAR_viewedAircraft && 
+        (HANGAR_viewedAircraft getVariable ["HANGAR_storageIndex", -1]) == _aircraftIndex) then {
+        // Store the viewed aircraft reference
+        _pilotData set [5, HANGAR_viewedAircraft];
+        diag_log format ["PILOT: Updated roster entry for pilot %1 - assigned to viewed aircraft", _pilotName];
+    } else {
+        // If not viewing, set to deployed instance if deployed
+        if (_isDeployed && !isNull _deployedInstance) then {
+            _pilotData set [5, _deployedInstance];
+            diag_log format ["PILOT: Updated roster entry for pilot %1 - assigned to deployed aircraft", _pilotName];
+        } else {
+            // Not deployed, just mark as assigned but with null aircraft
+            // This is critical to ensure correct tracking
+            _pilotData set [5, objNull];
+            diag_log format ["PILOT: Updated roster entry for pilot %1 - marked as assigned", _pilotName];
+        };
+    };
+    
+    systemChat format ["%1 assigned to %2 as %3", 
+        _pilotName, 
+        _displayName,
+        switch (_role) do {
+            case "driver": {"Pilot"};
+            case "gunner": {"Gunner"};
+            case "commander": {"Commander"};
+            case "turret": {format ["Turret Gunner %1", _turretPath]};
+            case "cargo": {"Crew"};
+            default {"Crew"};
+        }
     ];
     
     diag_log format ["PILOT: Successfully assigned pilot %1 to stored aircraft %2", 
-        (HANGAR_pilotRoster select _pilotIndex) select 0, 
+        _pilotName, 
         _displayName
     ];
     
@@ -603,13 +694,20 @@ HANGAR_fnc_returnCrewToRoster = {
         if (!isNull _curator) then {
             // Find all managed objects
             {
-                // If object is a pilot or managed aircraft
+                // IMPROVED: Only prevent editability for view models, not deployed aircraft
                 if (_x getVariable ["HANGAR_isPilot", false] || 
-                    _x getVariable ["HANGAR_managedAircraft", false]) then {
+                   (_x getVariable ["HANGAR_managedAircraft", false] && !(_x getVariable ["HANGAR_deployed", false]))) then {
                     
                     // If it's somehow editable, remove it
                     if (_x in curatorEditableObjects _curator) then {
                         _curator removeCuratorEditableObjects [[_x], true];
+                    };
+                };
+                
+                // NEW: Make sure deployed aircraft ARE editable
+                if (_x getVariable ["HANGAR_deployed", false]) then {
+                    if !(_x in curatorEditableObjects _curator) then {
+                        _curator addCuratorEditableObjects [[_x], true];
                     };
                 };
             } forEach (allUnits + vehicles);
@@ -703,3 +801,56 @@ fnc_returnPilotToHangarRoster = {
     };
 };
 
+// Add this function to hangarSystem.sqf
+HANGAR_fnc_validateAircraftCrew = {
+    params ["_aircraftIndex"];
+    
+    if (_aircraftIndex < 0 || _aircraftIndex >= count HANGAR_storedAircraft) exitWith {
+        diag_log format ["HANGAR: Invalid aircraft index for crew validation: %1", _aircraftIndex];
+        false
+    };
+    
+    // Get aircraft record
+    private _record = HANGAR_storedAircraft select _aircraftIndex;
+    private _aircraftName = _record select 1;
+    private _crew = _record select 5;
+    private _validatedCrew = [];
+    private _hasChanges = false;
+    
+    // Verify each crew member still exists in the roster
+    {
+        _x params ["_pilotIndex", "_role", "_turretPath"];
+        
+        if (_pilotIndex >= 0 && _pilotIndex < count HANGAR_pilotRoster) then {
+            // Additional check: make sure pilot isn't already assigned to another deployed aircraft
+            private _pilotData = HANGAR_pilotRoster select _pilotIndex;
+            private _currentAircraft = _pilotData select 5;
+            
+            if (isNull _currentAircraft || 
+                {_currentAircraft getVariable ["HANGAR_storageIndex", -1] == _aircraftIndex}) then {
+                // Pilot is available or already assigned to this aircraft
+                _validatedCrew pushBack _x;
+            } else {
+                // Pilot is assigned to a different aircraft
+                diag_log format ["HANGAR: Pilot %1 already assigned to another aircraft", _pilotData select 0];
+                _hasChanges = true;
+                // Don't add to validated crew
+            };
+        } else {
+            // Pilot no longer exists (was removed from roster)
+            diag_log format ["HANGAR: Invalid pilot index %1 for %2", _pilotIndex, _aircraftName];
+            _hasChanges = true;
+            // Don't add to validated crew
+        };
+    } forEach _crew;
+    
+    // Update crew with validated list if there were changes
+    if (_hasChanges) then {
+        diag_log format ["HANGAR: Fixed crew list for %1: %2 entries removed", 
+            _aircraftName, (count _crew) - (count _validatedCrew)];
+        _record set [5, _validatedCrew];
+    };
+    
+    // Return if any changes were made
+    _hasChanges
+};
