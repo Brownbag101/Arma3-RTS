@@ -11,10 +11,12 @@ HANGAR_masterAircraftList = [
     
     // Fighter aircraft
     ["sab_fl_spitfire_mk1", "Spitfire Mk.I", 1, "Fighters"],
-    ["sab_fl_spitfire_mk9", "Spitfire Mk.IX", 1, "Fighters"],
-    ["sab_fl_hurricane_2", "Hurricane Mk.II", 1, "Fighters"],
-    ["sab_fl_hurricane_11b", "Hurricane Mk.IIb", 1, "Fighters"],
-    ["LIB_RAF_P39", "P-39 Airacobra", 1, "Fighters"],
+    ["sab_fl_spitfire_mk5", "Spitfire Mk.V", 1, "Fighters"],
+	["sab_fl_spitfire_mkxiv", "Spitfire Mk.XIV", 1, "Fighters"],
+    ["sab_fl_hurricane", "Hurricane Mk.II", 1, "Fighters"],
+    ["sab_fl_hurricane_trop", "Hurricane AT", 1, "Fighters"],
+	["sab_fl_hurricane_2", "Hurricane CAS", 1, "Fighters"],
+    ["sab_fl_tempest", "Tempest MK.V", 1, "Fighters"],
     ["LIB_RAAF_P39", "RAAF P-39", 1, "Fighters"],
     
     // Reconnaissance aircraft
@@ -23,12 +25,11 @@ HANGAR_masterAircraftList = [
     ["LIB_Pe2", "Pe-2", 2, "Recon"],
     
     // Bomber aircraft
-    ["sab_sw_halifax", "Halifax", 5, "Bombers"],
-    ["LIB_B17F", "B-17F", 7, "Bombers"],
-    ["LIB_B_17G", "B-17G", 7, "Bombers"],
-    ["LIB_B25", "B-25 Mitchell", 5, "Bombers"],
-    ["LIB_Lancaster_B3", "Lancaster B.III", 7, "Bombers"]
+    ["sab_sw_halifax", "Halifax", 5, "Bombers"]
+	
 ];
+
+
 
 // Function to find aircraft data in the master list
 HANGAR_fnc_findAircraftInMasterList = {

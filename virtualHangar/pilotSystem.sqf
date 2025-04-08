@@ -1,5 +1,6 @@
 // Virtual Hangar System - Pilot Management
 // Handles pilot roster, progression, and assignment
+// REWRITTEN VERSION - ALL AI RESTRICTIONS REMOVED
 
 // Initialize pilot roster if not exists
 if (isNil "HANGAR_pilotRoster") then {
@@ -242,7 +243,7 @@ HANGAR_fnc_isPilotAvailableForAircraft = {
     [true, ""]
 };
 
-// Function to assign a pilot to an aircraft
+// Function to assign a pilot to an aircraft - COMPLETELY REWRITTEN WITHOUT AI RESTRICTIONS
 HANGAR_fnc_assignPilotToAircraft = {
     params ["_pilotIndex", "_aircraft", ["_role", "driver"], ["_turretPath", []], ["_isDeployed", false]];
     
@@ -311,13 +312,9 @@ HANGAR_fnc_assignPilotToAircraft = {
         objNull
     };
     
-    // Temporarily disable simulation while we set up the unit
-    _unit enableSimulationGlobal false;
-    
     // Set name and other attributes
     _unit setName _pilotName;
-    _unit allowDamage false;
-    _unit setCaptive true;
+    _unit allowDamage false; // Keep this for safety
     _unit setUnitRank (["PRIVATE", "CORPORAL", "SERGEANT", "LIEUTENANT", "CAPTAIN", "MAJOR"] select 
         (_rankIndex min 5));
     _unit setVariable ["HANGAR_isPilot", true, true];
@@ -333,27 +330,36 @@ HANGAR_fnc_assignPilotToAircraft = {
     
     // Set skill based on rank
     private _skillMultiplier = [_rankIndex] call HANGAR_fnc_getPilotSkillMultiplier;
-    _unit setSkill (_skillMultiplier * 0.7);
+    _unit setSkill (_skillMultiplier * 0.9); // Higher base skill
     
-    // Configure AI behavior based on deployment status
-    if (!_isDeployed) then {
-        // For view models, disable all AI
-        _unit disableAI "ALL";
-        _unit setBehaviour "CARELESS";
-        _unit allowFleeing 0;
-        _unit setVariable ["HANGAR_viewModelPilot", true, true];
-        diag_log format ["PILOT: Setup view model pilot: %1", _unit];
-    } else {
-        // For deployed aircraft, enable necessary AI
-        _unit enableAI "TARGET";
-        _unit enableAI "AUTOTARGET";
-        _unit enableAI "MOVE";
-        _unit enableAI "ANIM";
-        _unit enableAI "FSM";
-        _unit setBehaviour "AWARE";
-        _unit setCombatMode "YELLOW";
-        diag_log format ["PILOT: Setup deployed pilot: %1", _unit];
-    };
+    // CRITICAL CHANGE: Always enable ALL AI functionality regardless of deployment status
+    // No more differentiation between view model and deployed pilots
+    _unit enableAI "ALL"; 
+    _unit enableAI "TARGET";
+    _unit enableAI "AUTOTARGET"; 
+    _unit enableAI "MOVE";
+    _unit enableAI "ANIM";
+    _unit enableAI "FSM";
+    _unit enableAI "PATH";
+    _unit enableAI "TEAMSWITCH";
+    _unit enableAI "COVER";
+    _unit enableAI "SUPPRESSION";
+    _unit enableAI "AIMINGERROR";
+    _unit enableAI "WEAPONAIM";
+    
+    // Set behavior
+    _unit setBehaviour "COMBAT";
+    _unit setCombatMode "RED";
+    _unit allowFleeing 0;
+    _unit setCaptive false; // Never captive
+    
+    // Log pilot AI status
+    systemChat format ["✅ AI ENABLED for pilot %1", _pilotName];
+    diag_log format ["PILOT: Created pilot %1 with FULL AI CAPABILITIES", _pilotName];
+    
+    // Set aircraft variables
+    _aircraft setVariable ["HANGAR_deployed", _isDeployed, true];
+    _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
     
     // Store reference globally
     missionNamespace setVariable [format ["HANGAR_pilot_%1", _pilotIndex], _unit, true];
@@ -368,91 +374,51 @@ HANGAR_fnc_assignPilotToAircraft = {
     };
     
     // Check if pilot got in
-[_unit, _aircraft, _role, _turretPath, _pilotIndex, _isDeployed] spawn {
-    params ["_unit", "_aircraft", "_role", "_turretPath", "_pilotIndex", "_isDeployed"];
-    
-    sleep 1;
-    
-    if (vehicle _unit == _aircraft) then {
-        diag_log "PILOT: Successfully entered aircraft";
+    [_unit, _aircraft, _role, _turretPath, _pilotIndex, _isDeployed] spawn {
+        params ["_unit", "_aircraft", "_role", "_turretPath", "_pilotIndex", "_isDeployed"];
         
-        // Re-enable simulation
-        _unit enableSimulationGlobal true;
-        
-        // Set up pilot differently based on whether this is for deployment or viewing
-        if (_isDeployed) then {
-            // For deployed aircraft, ensure all AI is enabled
-            _unit setCaptive false;
-            
-            // Enable ALL necessary AI systems for deployed pilots
-            _unit enableAI "ALL"; // Enable everything first
-            
-            // Then explicitly enable critical systems
-            {
-                _unit enableAI _x;
-            } forEach ["PATH", "MOVE", "TARGET", "AUTOTARGET", "FSM", "WEAPONAIM", "TEAMSWITCH"];
-            
-            // Set behavior that allows movement
-            _unit setBehaviour "AWARE";
-            _unit setCombatMode "YELLOW";
-            _unit allowFleeing 0;
-            
-            // Set aircraft variables
-            _aircraft setVariable ["HANGAR_deployed", true, true];
-            _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
-            
-            // Start the engine
-            _aircraft engineOn true;
-            
-            diag_log format ["PILOT: %1 setup as active pilot with full AI enabled", _unit];
-            systemChat format ["%1 is now piloting the aircraft", name _unit];
-        } else {
-            // For view models, keep AI disabled
-            _unit setCaptive true;
-            _unit disableAI "ALL";
-            
-            diag_log format ["PILOT: %1 setup as view model pilot with AI disabled", _unit];
-            systemChat format ["%1 is now assigned to the aircraft", name _unit];
-        };
-    } else {
-        // Emergency teleport if needed
-        diag_log "PILOT: EMERGENCY - Failed to enter vehicle, trying direct teleport";
-        
-        switch (_role) do {
-            case "driver": { _unit moveInDriver _aircraft; };
-            case "gunner": { _unit moveInGunner _aircraft; };
-            case "commander": { _unit moveInCommander _aircraft; };
-            case "turret": { _unit moveInTurret [_aircraft, _turretPath]; };
-            case "cargo": { _unit moveInCargo _aircraft; };
-        };
-        
-        sleep 0.5;
+        sleep 1;
         
         if (vehicle _unit == _aircraft) then {
-            diag_log "PILOT: Emergency teleport successful";
-            _unit enableSimulationGlobal true;
+            diag_log "PILOT: Successfully entered aircraft";
             
+            // Start the engine if deployed
             if (_isDeployed) then {
-                _unit setCaptive false;
-                _unit enableAI "ALL";
-                _unit setBehaviour "AWARE";
-                _unit setCombatMode "YELLOW";
-                _aircraft setVariable ["HANGAR_deployed", true, true];
-                _aircraft setVariable ["HANGAR_pilotIndex", _pilotIndex, true];
                 _aircraft engineOn true;
+                systemChat format ["%1 is now piloting the aircraft with full combat capabilities", name _unit];
             } else {
-                _unit setCaptive true;
-                _unit disableAI "ALL";
+                systemChat format ["%1 is now assigned to the aircraft with full combat capabilities", name _unit];
             };
         } else {
-            systemChat "Failed to place pilot in aircraft";
-            diag_log "PILOT: Failed to place in aircraft even after teleport attempt";
-            deleteVehicle _unit;
-            [_pilotIndex, "assignment", objNull] call HANGAR_fnc_updatePilotStats;
+            // Emergency teleport
+            diag_log "PILOT: EMERGENCY - Failed to enter vehicle, trying direct teleport";
+            
+            switch (_role) do {
+                case "driver": { _unit moveInDriver _aircraft; };
+                case "gunner": { _unit moveInGunner _aircraft; };
+                case "commander": { _unit moveInCommander _aircraft; };
+                case "turret": { _unit moveInTurret [_aircraft, _turretPath]; };
+                case "cargo": { _unit moveInCargo _aircraft; };
+            };
+            
+            sleep 0.5;
+            
+            if (vehicle _unit == _aircraft) then {
+                diag_log "PILOT: Emergency teleport successful";
+                
+                if (_isDeployed) then {
+                    _aircraft engineOn true;
+                }
+            } else {
+                systemChat "Failed to place pilot in aircraft";
+                diag_log "PILOT: Failed to place in aircraft even after teleport attempt";
+                deleteVehicle _unit;
+                [_pilotIndex, "assignment", objNull] call HANGAR_fnc_updatePilotStats;
+            };
         };
     };
-};
-
+    
+    _unit
 };
 
 // Function to assign pilot to a stored aircraft (for UI)
@@ -485,8 +451,6 @@ HANGAR_fnc_assignPilotToStoredAircraft = {
     private _pilotName = _pilotData select 0;
     private _specialization = _pilotData select 4;
     private _currentAssignment = _pilotData select 5;
-    
-    
     
     // Check if pilot is available in any other aircraft's crew lists
     private _alreadyAssigned = false;
@@ -666,49 +630,22 @@ HANGAR_fnc_returnCrewToRoster = {
     true
 };
 
-
-
-// HANDLE ZEUS EDITABILITY FOR MANAGED OBJECTS
-// Create a repeating check to handle Zeus editability
-[] spawn {
-    // Wait until Zeus interface is initialized
-    waitUntil {!isNull (findDisplay 312)};
-    sleep 1;
-    
-    // Log that we're starting the monitor
-    diag_log "PILOT: Starting Zeus editability monitor";
-    
-    // Continuous check
-    while {true} do {
-        // Get curator logic
-        private _curator = getAssignedCuratorLogic player;
-        
-        if (!isNull _curator) then {
-            // Find all managed objects
-            {
-                // IMPROVED: Only prevent editability for view models, not deployed aircraft
-                if (_x getVariable ["HANGAR_isPilot", false] || 
-                   (_x getVariable ["HANGAR_managedAircraft", false] && !(_x getVariable ["HANGAR_deployed", false]))) then {
-                    
-                    // If it's somehow editable, remove it
-                    if (_x in curatorEditableObjects _curator) then {
-                        _curator removeCuratorEditableObjects [[_x], true];
-                    };
-                };
-                
-                // NEW: Make sure deployed aircraft ARE editable
-                if (_x getVariable ["HANGAR_deployed", false]) then {
-                    if !(_x in curatorEditableObjects _curator) then {
-                        _curator addCuratorEditableObjects [[_x], true];
-                    };
-                };
-            } forEach (allUnits + vehicles);
-        };
-        
-        // Check every 5 seconds
-        sleep 5;
-    };
+// Add global function for emergency AI enablement
+HANGAR_fnc_enableAllPilotAI = {
+    { 
+        if (_x getVariable ["HANGAR_isPilot", false]) then { 
+            _x enableAI "ALL"; 
+            _x enableAI "TARGET"; 
+            _x enableAI "AUTOTARGET"; 
+            _x setBehaviour "COMBAT"; 
+            _x setCombatMode "RED"; 
+            systemChat format ["Re-enabled AI for pilot: %1", name _x]; 
+        }; 
+    } forEach allUnits;
 };
+
+// Add as missionNamespace function for easy debug console access
+missionNamespace setVariable ["enableAllPilotAI", HANGAR_fnc_enableAllPilotAI, true];
 
 // Functions for external systems to use
 // Add a specific unit as a pilot to the roster
@@ -723,126 +660,34 @@ fnc_returnPilotToHangarRoster = {
     [_unit] call HANGAR_fnc_returnPilotToRoster
 };
 
-// Add global delete protection for all units marked as pilots
+// Add this to ensure pilots are actually created with AI
 [] spawn {
-    diag_log "PILOT: Starting improved protection watchdog";
+    diag_log "PILOT: Starting emergency AI activation watchdog";
     
     while {true} do {
         {
             if (_x getVariable ["HANGAR_isPilot", false]) then {
-                // Make sure pilot is flagged as essential (prevents automatic cleanup)
-                if !(_x getVariable ["HANGAR_essential_set", false]) then {
-                    _x setVariable ["HANGAR_essential_set", true];
-                    _x setVariable ["BIS_enableRandomization", false];
-                    _x setVariable ["acex_headless_blacklist", true]; 
-                    _x allowDamage false;
+                // Ensure ALL AI is always enabled for all pilots
+                _x enableAI "ALL";
+                _x enableAI "TARGET";
+                _x enableAI "AUTOTARGET";
+                _x enableAI "MOVE";
+                _x enableAI "FSM";
+                _x enableAI "PATH";
+                
+                // Ensure combat settings
+                _x setBehaviour "COMBAT";
+                _x setCombatMode "RED";
+                _x allowFleeing 0;
+                _x setCaptive false;
+                
+                // Re-enable simulation if needed
+                if (!simulationEnabled _x) then {
                     _x enableSimulationGlobal true;
-                    
-                    // This is the key line that prevents automatic deletion
-                    _x addEventHandler ["Deleted", {
-                        params ["_unit"];
-                        diag_log format ["PILOT: DELETION EVENT DETECTED for pilot: %1", _unit];
-                        systemChat format ["WARNING: Pilot %1 was deleted by the game engine", name _unit];
-                    }];
-                    
-                    diag_log format ["PILOT: Applied special protection to pilot: %1", _x];
-                };
-                
-                // IMPORTANT: Check if this is a deployed aircraft pilot
-                private _inVehicle = vehicle _x != _x;
-                private _isDeployed = false;
-                
-                if (_inVehicle) then {
-                    private _veh = vehicle _x;
-                    _isDeployed = _veh getVariable ["HANGAR_deployed", false];
-                    
-                    // Only modify settings for deployed pilots to prevent messing with view models
-                    if (_isDeployed) then {
-                        // DON'T change any AI settings for deployed pilots here
-                        // Just make sure captive is false for deployed pilots
-                        if (_x getVariable ["HANGAR_viewModelPilot", false]) then {
-                            // This pilot was previously a view model pilot but is now deployed
-                            // Full enable their AI and mark them as not a view model
-                            _x setVariable ["HANGAR_viewModelPilot", false, true];
-                            _x setCaptive false;
-                            
-                            // Log this transition
-                            diag_log format ["PILOT: Watchdog detected pilot %1 transitioned from view to deployed", _x];
-                        };
-                    } else {
-                        // For view model pilots, ensure they stay captive and AI disabled
-                        if (!(_x getVariable ["HANGAR_viewModelPilot", false])) then {
-                            _x setVariable ["HANGAR_viewModelPilot", true, true];
-                        };
-                        
-                        _x setCaptive true;
-                    };
-                } else {
-                    // If pilot is not in a vehicle, check for valid position
-                    private _pos = getPosATL _x;
-                    if (_pos select 2 < -5) then {
-                        diag_log format ["PILOT: Fell through terrain, repositioning: %1", _x];
-                        _pos set [2, 0];
-                        _x setPosATL _pos;
-                    };
                 };
             };
         } forEach allUnits;
         
-        sleep 5;
+        sleep 30; // Check every 30 seconds to avoid too much overhead
     };
-};
-
-// Add this function to hangarSystem.sqf
-HANGAR_fnc_validateAircraftCrew = {
-    params ["_aircraftIndex"];
-    
-    if (_aircraftIndex < 0 || _aircraftIndex >= count HANGAR_storedAircraft) exitWith {
-        diag_log format ["HANGAR: Invalid aircraft index for crew validation: %1", _aircraftIndex];
-        false
-    };
-    
-    // Get aircraft record
-    private _record = HANGAR_storedAircraft select _aircraftIndex;
-    private _aircraftName = _record select 1;
-    private _crew = _record select 5;
-    private _validatedCrew = [];
-    private _hasChanges = false;
-    
-    // Verify each crew member still exists in the roster
-    {
-        _x params ["_pilotIndex", "_role", "_turretPath"];
-        
-        if (_pilotIndex >= 0 && _pilotIndex < count HANGAR_pilotRoster) then {
-            // Additional check: make sure pilot isn't already assigned to another deployed aircraft
-            private _pilotData = HANGAR_pilotRoster select _pilotIndex;
-            private _currentAircraft = _pilotData select 5;
-            
-            if (isNull _currentAircraft || 
-                {_currentAircraft getVariable ["HANGAR_storageIndex", -1] == _aircraftIndex}) then {
-                // Pilot is available or already assigned to this aircraft
-                _validatedCrew pushBack _x;
-            } else {
-                // Pilot is assigned to a different aircraft
-                diag_log format ["HANGAR: Pilot %1 already assigned to another aircraft", _pilotData select 0];
-                _hasChanges = true;
-                // Don't add to validated crew
-            };
-        } else {
-            // Pilot no longer exists (was removed from roster)
-            diag_log format ["HANGAR: Invalid pilot index %1 for %2", _pilotIndex, _aircraftName];
-            _hasChanges = true;
-            // Don't add to validated crew
-        };
-    } forEach _crew;
-    
-    // Update crew with validated list if there were changes
-    if (_hasChanges) then {
-        diag_log format ["HANGAR: Fixed crew list for %1: %2 entries removed", 
-            _aircraftName, (count _crew) - (count _validatedCrew)];
-        _record set [5, _validatedCrew];
-    };
-    
-    // Return if any changes were made
-    _hasChanges
 };

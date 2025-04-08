@@ -339,19 +339,16 @@ HANGAR_fnc_viewAircraft = {
     HANGAR_viewedAircraft
 };
 
-// Enhanced aircraft deployment function with all fixes incorporated
+// Function to deploy an aircraft with full AI capabilities
 HANGAR_fnc_deployAircraft = {
-    params ["_index", "_deployPosIndex"];
+    params ["_aircraftIndex", "_deployPosIndex"];
     
     // Validate index
-    if (_index < 0 || _index >= count HANGAR_storedAircraft) exitWith {
+    if (_aircraftIndex < 0 || _aircraftIndex >= count HANGAR_storedAircraft) exitWith {
         systemChat "Invalid aircraft index";
-        diag_log format ["HANGAR: Invalid aircraft index for deployment: %1", _index];
+        diag_log format ["HANGAR: Invalid aircraft index for deployment: %1", _aircraftIndex];
         objNull
     };
-    
-    // Validate crew before deployment
-    [_index] call HANGAR_fnc_validateAircraftCrew;
     
     // Validate deploy position
     if (_deployPosIndex < 0 || _deployPosIndex >= count HANGAR_deployPositions) exitWith {
@@ -362,7 +359,7 @@ HANGAR_fnc_deployAircraft = {
     
     // Get marker name and aircraft data
     private _deployMarker = HANGAR_deployPositions select _deployPosIndex;
-    private _record = HANGAR_storedAircraft select _index;
+    private _record = HANGAR_storedAircraft select _aircraftIndex;
     _record params ["_type", "_displayName", "_fuel", "_damage", "_weaponsData", "_crew", "_customData", "_isDeployed", "_deployedInstance"];
     
     // Variable to hold the deployed aircraft
@@ -388,7 +385,7 @@ HANGAR_fnc_deployAircraft = {
         // This is a new deployment
         // Check if we're currently viewing this aircraft
         if (!isNull HANGAR_viewedAircraft && 
-            (HANGAR_viewedAircraft getVariable ["HANGAR_storageIndex", -1]) == _index) then {
+            (HANGAR_viewedAircraft getVariable ["HANGAR_storageIndex", -1]) == _aircraftIndex) then {
             
             // Use the currently viewed aircraft
             _aircraft = HANGAR_viewedAircraft;
@@ -440,7 +437,7 @@ HANGAR_fnc_deployAircraft = {
                 _aircraft setAmmo [_weapon, _ammo];
             } forEach _weaponsData;
             
-            // Add to Zeus - CRITICAL FIX FOR EDITABILITY
+            // Add to Zeus
             private _curator = getAssignedCuratorLogic player;
             if (!isNull _curator) then {
                 _curator addCuratorEditableObjects [[_aircraft], true];
@@ -452,10 +449,10 @@ HANGAR_fnc_deployAircraft = {
         
         // Mark as deployed
         _aircraft setVariable ["HANGAR_deployed", true, true];
-        _aircraft setVariable ["HANGAR_storageIndex", _index, true];
+        _aircraft setVariable ["HANGAR_storageIndex", _aircraftIndex, true];
         
-        // CRITICAL CHANGE: Flag as editable by Zeus
-        _aircraft setVariable ["HANGAR_managedAircraft", false, true];  // Changed to FALSE
+        // CRITICAL CHANGE: Always allow editing by Zeus
+        _aircraft setVariable ["HANGAR_managedAircraft", false, true];
         
         // Add destruction event handler
         _aircraft addEventHandler ["Killed", {
@@ -472,9 +469,6 @@ HANGAR_fnc_deployAircraft = {
                 [_unit] call HANGAR_fnc_onAircraftDestroyed;
             };
         }];
-        
-        // Set up ejection handling for the aircraft
-        [_aircraft, _crew] call HANGAR_fnc_setupAircraftDamageHandlers;
     };
     
     // IMPORTANT: Update storage record with deployment status
@@ -486,7 +480,7 @@ HANGAR_fnc_deployAircraft = {
         HANGAR_deployedAircraft pushBack _aircraft;
     };
     
-    // Create crew if needed - WITHOUT SLEEP IN MAIN THREAD
+    // Create crew for deployment or reposition
     if (count _crew > 0) then {
         // Use a proper spawn to handle crew creation with delays
         [_crew, _aircraft] spawn {
@@ -501,136 +495,101 @@ HANGAR_fnc_deployAircraft = {
             {
                 _x params ["_pilotIndex", "_role", "_turretPath"];
                 if (_pilotIndex >= 0) then {
-                    // Directly call function - already inside a spawn
+                    // CRITICAL CHANGE: Always deploy with full AI by setting _isDeployed to true
                     [_pilotIndex, _aircraft, _role, _turretPath, true] call HANGAR_fnc_assignPilotToAircraft;
-                    sleep 0.3; // Safe to sleep inside a spawn
+                    sleep 0.3;
                 };
             } forEach _crew;
             
-            // Log completion
             diag_log format ["HANGAR: Completed crew assignment for %1", _aircraft];
-        };
-    };
-    
-    // Set up loiter waypoint for the deployed aircraft - WITH RETRY
-    [_aircraft, _index] spawn {
-        params ["_aircraft", "_storageIndex"];
-        private ["_retryCount", "_success"];
-        
-        _retryCount = 0;
-        _success = false;
-        
-        diag_log format ["HANGAR: Starting waypoint setup for aircraft %1", _aircraft];
-        
-        // Keep retrying until successful or max retries reached
-        while {!_success && _retryCount < 5} do {
-            // Small delay to ensure crew is fully in place
-            sleep 3 + _retryCount; // Increasing delay with retries
             
-            if (isNull _aircraft) exitWith {
-                diag_log "HANGAR: Aircraft is null, can't set waypoint";
-            };
-            
-            diag_log format ["HANGAR: Waypoint setup attempt %1 for %2", _retryCount + 1, _aircraft];
-            
-            // Get the group from vehicle
+            // ===== CRITICAL SECTION: WAYPOINT SETUP WITH FULL AI =====
+            // Get driver and group
             private _driver = driver _aircraft;
             if (isNull _driver) then {
-                // Try to get any crew member as a fallback
-                private _crew = crew _aircraft;
-                if (count _crew > 0) then {
-                    _driver = _crew select 0;
-                    diag_log format ["HANGAR: Using alternate crew member as driver: %1", _driver];
+                private _allCrew = crew _aircraft;
+                if (count _allCrew > 0) then {
+                    _driver = _allCrew select 0;
                 };
             };
             
             if (!isNull _driver) then {
                 private _group = group _driver;
                 
-                if (!isNull _group) then {
-                    // Clear existing waypoints
-                    while {count waypoints _group > 0} do {
-                        deleteWaypoint [_group, 0];
+                // Ensure ALL crew has AI enabled
+                {
+                    if (_x getVariable ["HANGAR_isPilot", false]) then {
+                        // Enable ALL AI
+                        _x enableAI "ALL";
+                        _x enableAI "TARGET";
+                        _x enableAI "AUTOTARGET";
+                        _x enableAI "MOVE";
+                        _x enableAI "FSM";
+                        _x enableAI "PATH";
+                        
+                        // Set aggressive behavior
+                        _x setBehaviour "COMBAT";
+                        _x setCombatMode "RED";
+                        _x allowFleeing 0;
+                        _x setCaptive false;
+                        
+                        systemChat format ["AI fully enabled for pilot: %1", name _x];
+                        diag_log format ["HANGAR: Enabled ALL AI for pilot: %1", name _x];
                     };
-                    
-                    // Look for a loiter marker
-                    private _loiterMarker = "air_loiter";
-                    private _loiterPos = [0,0,0];
-                    
-                    if (markerType _loiterMarker == "") then {
-                        // If no specific loiter marker, use center of map
-                        _loiterPos = [worldSize/2, worldSize/2, 300];
-                        systemChat "No air_loiter marker found, using map center";
-                    } else {
-                        _loiterPos = getMarkerPos _loiterMarker;
-                        _loiterPos set [2, 300]; // Set altitude to 300m
-                    };
-                    
-                    // First add a MOVE waypoint to ensure initial movement
-                    private _moveWP = _group addWaypoint [_loiterPos, 0];
-                    _moveWP setWaypointType "MOVE";
-                    _moveWP setWaypointSpeed "NORMAL";
-                    _moveWP setWaypointStatements ["true", "vehicle this engineOn true; (vehicle this) flyInHeight 300;"];
-                    
-                    // Then add the loiter waypoint
-                    private _wp = _group addWaypoint [_loiterPos, 0];
-                    _wp setWaypointType "LOITER";
-                    _wp setWaypointLoiterType "CIRCLE";
-                    _wp setWaypointLoiterRadius 800; // 800m radius circle
-                    _wp setWaypointSpeed "LIMITED";
-                    _wp setWaypointBehaviour "SAFE";
-                    
-                    // Re-enable AI for all crew
-                    {
-                        private _crewMember = _x;
-                        if (_crewMember getVariable ["HANGAR_isPilot", false]) then {
-                            // Enable ALL AI functions one by one
-                            {
-                                _crewMember enableAI _x;
-                            } forEach ["TARGET", "AUTOTARGET", "MOVE", "ANIM", "FSM", "PATH", "TEAMSWITCH", "COVER", "SUPPRESSION", "AIMINGERROR"];
-                            
-                            _crewMember setBehaviour "AWARE";
-                            _crewMember setCombatMode "YELLOW";
-                            _crewMember allowFleeing 0;
-                            
-                            diag_log format ["HANGAR: Re-enabled AI for pilot: %1", _crewMember];
-                        };
-                    } forEach crew _aircraft;
-                    
-                    // Set group behavior
-                    _group setBehaviour "AWARE";
-                    _group setCombatMode "YELLOW";
-                    _group allowFleeing 0;
-                    
-                    // Start the engine - explicitly in multiple ways
-                    _aircraft engineOn true;
-                    _driver action ["engineOn", _aircraft];
-                    
-                    // Force flying height
-                    _aircraft flyInHeight 300;
-                    
-                    // Mark success
-                    _success = true;
-                    
-                    // Update status in storage record
-                    if (_storageIndex >= 0 && _storageIndex < count HANGAR_storedAircraft) then {
-                        (HANGAR_storedAircraft select _storageIndex) set [9, true]; // Set custom "waypoint_set" flag
-                    };
-                    
-                    diag_log format ["HANGAR: Successfully created waypoints for %1", _aircraft];
-                } else {
-                    diag_log format ["HANGAR: Cannot find group for driver %1", _driver];
-                    _retryCount = _retryCount + 1;
+                } forEach crew _aircraft;
+                
+                // Clear existing waypoints
+                while {count waypoints _group > 0} do {
+                    deleteWaypoint [_group, 0];
                 };
+                
+                // Look for a loiter marker
+                private _loiterMarker = "air_loiter";
+                private _loiterPos = [0,0,0];
+                
+                if (markerType _loiterMarker == "") then {
+                    // If no specific loiter marker, use center of map
+                    _loiterPos = [worldSize/2, worldSize/2, 300];
+                    systemChat "No air_loiter marker found, using map center";
+                } else {
+                    _loiterPos = getMarkerPos _loiterMarker;
+                    _loiterPos set [2, 300]; // Set altitude to 300m
+                }; 
+                
+                // First add a MOVE waypoint to ensure initial movement
+                private _moveWP = _group addWaypoint [_loiterPos, 0];
+                _moveWP setWaypointType "MOVE";
+                _moveWP setWaypointSpeed "NORMAL";
+                // CRITICAL CHANGE: Set to COMBAT behavior
+                _moveWP setWaypointBehaviour "COMBAT";
+                _moveWP setWaypointCombatMode "RED";
+                
+                // Then add the loiter waypoint
+                private _wp = _group addWaypoint [_loiterPos, 0];
+                _wp setWaypointType "LOITER";
+                _wp setWaypointLoiterType "CIRCLE";
+                _wp setWaypointLoiterRadius 800; // 800m radius circle
+                _wp setWaypointSpeed "LIMITED";
+                // CRITICAL CHANGE: Set to COMBAT behavior
+                _wp setWaypointBehaviour "COMBAT";
+                _wp setWaypointCombatMode "RED";
+                
+                // Set group behavior
+                _group setBehaviour "COMBAT";
+                _group setCombatMode "RED";
+                _group allowFleeing 0;
+                
+                // Start the engine
+                _aircraft engineOn true;
+                _driver action ["engineOn", _aircraft];
+                
+                // Force flying height
+                _aircraft flyInHeight 300;
+                
+                diag_log format ["HANGAR: Created waypoints with COMBAT behavior for %1", _aircraft];
             } else {
                 diag_log "HANGAR: No driver found for deployed aircraft";
-                _retryCount = _retryCount + 1;
             };
-        };
-        
-        if (!_success) then {
-            systemChat "Warning: Aircraft may not fly properly. Try redeploying.";
-            diag_log "HANGAR: Failed to set up waypoints after multiple attempts";
         };
     };
     
