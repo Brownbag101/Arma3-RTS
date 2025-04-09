@@ -1,187 +1,291 @@
 // Set Speed Control Function
-// Adjusts the flying speed of selected aircraft
+// Handles changing aircraft speed on demand
 
-// === GAMEPLAY VARIABLES - ADJUST SPEED PRESETS HERE ===
-AIR_OP_SPEED_PRESETS = [
-    ["LIMITED", "Economical cruise speed - maximizes fuel efficiency"],
-    ["NORMAL", "Standard cruising speed - balanced performance"],
-    ["FULL", "Maximum speed - rapid response but higher fuel consumption"]
+// === GAMEPLAY VARIABLES - SPEED OPTIONS ===
+AIR_OP_SPEED_OPTIONS = [
+    ["LIMITED", "Cruise Speed", [0.2, 0.6, 0.9, 1], "Efficient fuel usage, extended loiter time"],
+    ["NORMAL", "Combat Speed", [0.3, 0.7, 0.3, 1], "Standard operational speed"],
+    ["FULL", "Maximum Speed", [0.9, 0.3, 0.3, 1], "High fuel consumption, improved evasion"]
 ];
 
+// Function to set aircraft speed
 AIR_OP_fnc_setSpeed = {
-    // Use the currently selected aircraft or the one passed as parameter
-    params [["_aircraft", AIR_OP_selectedAircraft]];
+    // Get selected aircraft from UI
+    private _aircraft = AIR_OP_selectedAircraft;
     
     if (isNull _aircraft) exitWith {
-        systemChat "No aircraft selected for speed adjustment";
+        systemChat "No aircraft selected";
         diag_log "AIR_OPS SPEED: No aircraft selected";
         false
     };
     
-    
-    
-    // Create dialog for speed selection - Zeus compatible approach
+    // Create dialog for speed selection
     disableSerialization;
-    private _display = findDisplay 312; // Zeus display
+    createDialog "RscDisplayEmpty";
     
-    // If we're in Zeus, create the dialog as a child of Zeus display
-    if (!isNull _display) then {
-        _display createDisplay "RscDisplayEmpty";
-        _display = findDisplay -1;
-    } else {
-        // Outside Zeus, create dialog normally
-        createDialog "RscDisplayEmpty";
-        _display = findDisplay -1;
-    };
-    
+    private _display = findDisplay -1;
     if (isNull _display) exitWith {
+        systemChat "Could not create dialog";
         diag_log "AIR_OPS SPEED: Failed to create dialog";
-        systemChat "Could not create speed adjustment dialog";
         false
     };
     
     // Create background
-    private _background = _display ctrlCreate ["RscText", 1000];
-    _background ctrlSetPosition [0.3 * safezoneW + safezoneX, 0.35 * safezoneH + safezoneY, 0.4 * safezoneW, 0.3 * safezoneH];
+    private _background = _display ctrlCreate ["RscText", 5000];
+    _background ctrlSetPosition [
+        0.3 * safezoneW + safezoneX,
+        0.3 * safezoneH + safezoneY,
+        0.4 * safezoneW,
+        0.4 * safezoneH
+    ];
     _background ctrlSetBackgroundColor [0, 0, 0, 0.8];
     _background ctrlCommit 0;
     
     // Create title
-    private _title = _display ctrlCreate ["RscText", 1001];
-    _title ctrlSetPosition [0.3 * safezoneW + safezoneX, 0.35 * safezoneH + safezoneY, 0.4 * safezoneW, 0.05 * safezoneH];
-    _title ctrlSetBackgroundColor [0.2, 0.2, 0.2, 1];
+    private _title = _display ctrlCreate ["RscText", 5001];
+    _title ctrlSetPosition [
+        0.3 * safezoneW + safezoneX,
+        0.3 * safezoneH + safezoneY,
+        0.4 * safezoneW,
+        0.05 * safezoneH
+    ];
     _title ctrlSetText "Set Aircraft Speed";
+    _title ctrlSetTextColor [1, 1, 1, 1];
+    _title ctrlSetBackgroundColor [0.2, 0.4, 0.3, 1];
     _title ctrlCommit 0;
     
-    // Create aircraft info
-    private _aircraftType = getText (configFile >> "CfgVehicles" >> typeOf _aircraft >> "displayName");
-    private _info = _display ctrlCreate ["RscText", 1002];
-    _info ctrlSetPosition [0.3 * safezoneW + safezoneX, 0.4 * safezoneH + safezoneY, 0.4 * safezoneW, 0.05 * safezoneH];
-    _info ctrlSetText format ["Aircraft: %1", _aircraftType];
-    _info ctrlCommit 0;
+    // Get aircraft display name
+    private _aircraftName = getText (configFile >> "CfgVehicles" >> typeOf _aircraft >> "displayName");
     
-    // Create speed list
-    private _list = _display ctrlCreate ["RscListBox", 1003];
-    _list ctrlSetPosition [0.32 * safezoneW + safezoneX, 0.46 * safezoneH + safezoneY, 0.36 * safezoneW, 0.12 * safezoneH];
-    _list ctrlSetBackgroundColor [0.1, 0.1, 0.1, 1];
-    _list ctrlCommit 0;
+    // Create subtitle with aircraft name
+    private _subtitle = _display ctrlCreate ["RscText", 5002];
+    _subtitle ctrlSetPosition [
+        0.3 * safezoneW + safezoneX,
+        0.35 * safezoneH + safezoneY,
+        0.4 * safezoneW,
+        0.03 * safezoneH
+    ];
+    _subtitle ctrlSetText format ["Aircraft: %1", _aircraftName];
+    _subtitle ctrlSetTextColor [1, 1, 1, 1];
+    _subtitle ctrlCommit 0;
     
-    // Fill speed presets
+    // Get current speed
+    private _speed = speed _aircraft;
+    
+    // Show current speed
+    private _currentSpeedText = _display ctrlCreate ["RscText", 5003];
+    _currentSpeedText ctrlSetPosition [
+        0.3 * safezoneW + safezoneX,
+        0.38 * safezoneH + safezoneY,
+        0.4 * safezoneW,
+        0.03 * safezoneH
+    ];
+    _currentSpeedText ctrlSetText format ["Current speed: %1 km/h", round _speed];
+    _currentSpeedText ctrlSetTextColor [0.8, 1, 0.8, 1];
+    _currentSpeedText ctrlCommit 0;
+    
+    // Create info about fuel consumption
+    private _fuelInfo = _display ctrlCreate ["RscText", 5004];
+    _fuelInfo ctrlSetPosition [
+        0.3 * safezoneW + safezoneX,
+        0.41 * safezoneH + safezoneY,
+        0.4 * safezoneW,
+        0.03 * safezoneH
+    ];
+    _fuelInfo ctrlSetText "Note: Higher speeds increase fuel consumption";
+    _fuelInfo ctrlSetTextColor [1, 0.8, 0.6, 1];
+    _fuelInfo ctrlCommit 0;
+    
+    // Create buttons for each speed option
+    private _buttonWidth = 0.35 * safezoneW;
+    private _buttonHeight = 0.07 * safezoneH;
+    private _buttonSpacing = 0.01 * safezoneH;
+    private _startY = 0.45 * safezoneH + safezoneY;
+    
     {
-        _x params ["_name", "_description"];
-        private _index = _list lbAdd _name;
-        _list lbSetData [_index, _name];
-        _list lbSetTooltip [_index, _description];
-    } forEach AIR_OP_SPEED_PRESETS;
-    
-    // Create description text
-    private _description = _display ctrlCreate ["RscStructuredText", 1004];
-    _description ctrlSetPosition [0.32 * safezoneW + safezoneX, 0.59 * safezoneH + safezoneY, 0.36 * safezoneW, 0.09 * safezoneH];
-    _description ctrlSetStructuredText parseText "Select a speed setting for the aircraft.";
-    _description ctrlCommit 0;
-    
-    // Handle list selection - update description
-    _list ctrlAddEventHandler ["LBSelChanged", {
-        params ["_control", "_selectedIndex"];
+        _x params ["_speedMode", "_displayName", "_color", "_description"];
         
-        private _display = ctrlParent _control;
-        private _description = _display displayCtrl 1004;
+        private _buttonY = _startY + (_forEachIndex * (_buttonHeight + _buttonSpacing));
         
-        private _preset = AIR_OP_SPEED_PRESETS select _selectedIndex;
-        _description ctrlSetStructuredText parseText format ["<t size='0.9'>%1</t>", _preset select 1];
-    }];
-    
-    // Create buttons
-    private _confirmBtn = _display ctrlCreate ["RscButton", 1005];
-    _confirmBtn ctrlSetPosition [0.48 * safezoneW + safezoneX, 0.59 * safezoneH + safezoneY, 0.2 * safezoneW, 0.05 * safezoneH];
-    _confirmBtn ctrlSetText "Confirm";
-    _confirmBtn ctrlSetBackgroundColor [0.2, 0.6, 0.2, 1];
-    _confirmBtn ctrlCommit 0;
-    
-    private _cancelBtn = _display ctrlCreate ["RscButton", 1006];
-    _cancelBtn ctrlSetPosition [0.32 * safezoneW + safezoneX, 0.59 * safezoneH + safezoneY, 0.15 * safezoneW, 0.05 * safezoneH];
-    _cancelBtn ctrlSetText "Cancel";
-    _cancelBtn ctrlSetBackgroundColor [0.6, 0.2, 0.2, 1];
-    _cancelBtn ctrlCommit 0;
-    
-    // Add handlers
-    _confirmBtn ctrlAddEventHandler ["ButtonClick", {
-        params ["_control"];
-        private _display = ctrlParent _control;
+        // Create button
+        private _button = _display ctrlCreate ["RscButton", 5100 + _forEachIndex];
+        _button ctrlSetPosition [
+            0.325 * safezoneW + safezoneX,
+            _buttonY,
+            _buttonWidth,
+            _buttonHeight
+        ];
+        _button ctrlSetText _displayName;
+        _button ctrlSetBackgroundColor _color;
         
-        // Get the selected aircraft
-        private _aircraft = AIR_OP_selectedAircraft;
+        // Add speed estimate based on aircraft type
+        private _speedEstimate = "";
+        private _maxSpeed = getNumber (configFile >> "CfgVehicles" >> typeOf _aircraft >> "maxSpeed");
         
-        if (isNull _aircraft) exitWith {
-            systemChat "No aircraft selected";
-            [] call AIR_OP_fnc_forceCloseDialog;
-        };
-        
-        // Get speed from selection
-        private _list = _display displayCtrl 1003;
-        private _selectedIndex = lbCurSel _list;
-        
-        if (_selectedIndex == -1) exitWith {
-            systemChat "No speed setting selected";
-            [] call AIR_OP_fnc_forceCloseDialog;
-        };
-        
-        private _speedSetting = _list lbData _selectedIndex;
-        
-        // Get aircraft group
-        private _driver = driver _aircraft;
-        if (isNull _driver) exitWith {
-            systemChat "Aircraft has no pilot";
-            [] call AIR_OP_fnc_forceCloseDialog;
-        };
-        
-        private _group = group _driver;
-        if (isNull _group) exitWith {
-            systemChat "Pilot has no group";
-            [] call AIR_OP_fnc_forceCloseDialog;
-        };
-        
-        // Apply speed setting to group
-        _group setSpeedMode _speedSetting;
-        
-        // Update all waypoints - safer approach
-        if (waypoints _group isEqualType []) then {
-            {
-                if (_x isEqualType []) then {
-                    _x setWaypointSpeed _speedSetting;
-                };
-            } forEach waypoints _group;
-        } else {
-            // Alternative waypoint iteration approach
-            for "_i" from 0 to (count waypoints _group - 1) do {
-                private _wp = [_group, _i];
-                _wp setWaypointSpeed _speedSetting;
+        if (_maxSpeed == 0) then {
+            // If not found in config, use default estimates
+            switch (_speedMode) do {
+                case "LIMITED": { _speedEstimate = "~250 km/h"; };
+                case "NORMAL": { _speedEstimate = "~350 km/h"; };
+                case "FULL": { _speedEstimate = "~450 km/h"; };
             };
+        } else {
+            // Calculate based on config max speed
+            private _speedMult = switch (_speedMode) do {
+                case "LIMITED": { 0.6 };
+                case "NORMAL": { 0.8 };
+                case "FULL": { 1.0 };
+                default { 0.7 };
+            };
+            
+            _speedEstimate = format ["~%1 km/h", round (_maxSpeed * _speedMult)];
         };
         
-        // Give feedback
-        systemChat format ["%1 speed set to %2", getText (configFile >> "CfgVehicles" >> typeOf _aircraft >> "displayName"), _speedSetting];
+        // Add info about fuel consumption
+        private _fuelUse = switch (_speedMode) do {
+            case "LIMITED": { "Low Fuel Use"; };
+            case "NORMAL": { "Medium Fuel Use"; };
+            case "FULL": { "High Fuel Use"; };
+            default { ""; };
+        };
         
-        [] call AIR_OP_fnc_forceCloseDialog;
-    }];
+        private _buttonText = format ["%1\n%2\n%3", _displayName, _speedEstimate, _fuelUse];
+        _button ctrlSetText _buttonText;
+        _button ctrlSetTooltip _description;
+        
+        // Set event handler
+        _button ctrlSetEventHandler ["ButtonClick", format [
+            "[%1, '%2', '%3'] call AIR_OP_fnc_applySpeed; closeDialog 0;",
+            _aircraft,
+            _speedMode,
+            _displayName
+        ]];
+        
+        _button ctrlCommit 0;
+        
+    } forEach AIR_OP_SPEED_OPTIONS;
     
-    _cancelBtn ctrlAddEventHandler ["ButtonClick", {
-        [] call AIR_OP_fnc_forceCloseDialog;
-    }];
-    
-    // Select Normal speed by default
-    _list lbSetCurSel 1;
+    // Create close button
+    private _closeBtn = _display ctrlCreate ["RscButton", 5999];
+    _closeBtn ctrlSetPosition [
+        0.325 * safezoneW + safezoneX,
+        0.69 * safezoneH + safezoneY,
+        _buttonWidth,
+        0.04 * safezoneH
+    ];
+    _closeBtn ctrlSetText "Close";
+    _closeBtn ctrlSetBackgroundColor [0.4, 0.4, 0.4, 1];
+    _closeBtn ctrlSetEventHandler ["ButtonClick", "closeDialog 0;"];
+    _closeBtn ctrlCommit 0;
     
     true
 };
 
-// Test function for speed adjustment
-AIR_OP_fnc_testSetSpeed = {
-    private _deployedAircraft = [] call AIR_OP_fnc_getDeployedAircraft;
+// Function to apply the selected speed
+AIR_OP_fnc_applySpeed = {
+    params ["_aircraft", "_speedMode", "_displayName"];
     
-    if (count _deployedAircraft > 0) then {
-        [_deployedAircraft select 0] call AIR_OP_fnc_setSpeed;
-    } else {
-        systemChat "No deployed aircraft found for speed test";
+    if (isNull _aircraft) exitWith {
+        systemChat "No aircraft selected";
+        false
     };
+    
+    // Get driver and group
+    private _driver = driver _aircraft;
+    if (isNull _driver) exitWith {
+        systemChat "No pilot found in aircraft";
+        false
+    };
+    
+    private _group = group _driver;
+    if (isNull _group) exitWith {
+        systemChat "No valid group for pilot";
+        false
+    };
+    
+    // Apply speed to group
+    _group setSpeedMode _speedMode;
+    
+    // Update all waypoints with the new speed
+    {
+        _x setWaypointSpeed _speedMode;
+    } forEach waypoints _group;
+    
+    // Store speed setting on the aircraft
+    _aircraft setVariable ["AIR_OP_speedMode", _speedMode, true];
+    
+    // Apply immediate speed change
+    switch (_speedMode) do {
+        case "LIMITED": {
+            // Apply cruise speed settings
+            _aircraft limitSpeed 250; // Limit top speed for better fuel economy
+            
+            // Update pilot behavior
+            {
+                if (_x getVariable ["HANGAR_isPilot", false]) then {
+                    _x setSkill ["spotDistance", 0.8]; // Better observation when slower
+                    _x setSkill ["spotTime", 0.7];
+                };
+            } forEach crew _aircraft;
+            
+            // Enable fuel saving
+            [_aircraft] spawn {
+                params ["_aircraft"];
+                
+                // Only continue if aircraft exists and speed mode hasn't changed
+                while {!isNull _aircraft && alive _aircraft && (_aircraft getVariable ["AIR_OP_speedMode", ""]) == "LIMITED"} do {
+                    // Reduce fuel consumption
+                    private _currentFuel = fuel _aircraft;
+                    private _newFuel = _currentFuel + 0.001; // Small boost to compensate for lower speed
+                    _aircraft setFuel (_newFuel min 1);
+                    
+                    sleep 10;
+                };
+            };
+        };
+        
+        case "NORMAL": {
+            // Standard combat speed
+            _aircraft limitSpeed -1; // No artificial limit
+            
+            // Balanced pilot settings
+            {
+                if (_x getVariable ["HANGAR_isPilot", false]) then {
+                    _x setSkill ["spotDistance", 0.7];
+                    _x setSkill ["spotTime", 0.7];
+                };
+            } forEach crew _aircraft;
+        };
+        
+        case "FULL": {
+            // Maximum speed
+            _aircraft limitSpeed -1; // No speed limit
+            
+            // Adjust pilot skills
+            {
+                if (_x getVariable ["HANGAR_isPilot", false]) then {
+                    _x setSkill ["spotDistance", 0.6]; // Harder to spot targets at high speed
+                    _x setSkill ["spotTime", 0.5];
+                };
+            } forEach crew _aircraft;
+            
+            // Increased fuel consumption
+            [_aircraft] spawn {
+                params ["_aircraft"];
+                
+                // Only continue if aircraft exists and speed mode hasn't changed
+                while {!isNull _aircraft && alive _aircraft && (_aircraft getVariable ["AIR_OP_speedMode", ""]) == "FULL"} do {
+                    // Increase fuel consumption
+                    private _currentFuel = fuel _aircraft;
+                    private _newFuel = _currentFuel - 0.002; // Extra consumption at max speed
+                    _aircraft setFuel (_newFuel max 0);
+                    
+                    sleep 10;
+                };
+            };
+        };
+    };
+    
+    systemChat format ["Speed set to %1", _displayName];
+    true
 };
