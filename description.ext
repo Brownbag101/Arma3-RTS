@@ -1,0 +1,37 @@
+#include "\A3\ui_f\hpp\defineCommonGrids.inc"
+#include "\A3\ui_f\hpp\defineCommonColors.inc"
+#include "\A3\ui_f\hpp\defineResincl.inc"
+
+class RscText;
+class RscStructuredText;
+class RscPicture;
+class RscPictureKeepAspect;
+class RscButton;
+class RscProgress;
+class RscControlsGroup;
+
+class CfgFunctions
+{
+    class MISSION
+    {
+        class UI
+        {
+            file = "scripts\ui";
+            class rtsUI {
+                file = "scripts\ui\rtsUI.sqf";
+            };
+            class iconManager {
+                file = "scripts\ui\iconManager.sqf";
+            };
+        };
+    };
+};
+
+class CfgTextures
+{
+    class Portrait1
+    {
+        name = "portrait1";
+        path = "textures\ui\portrait1.png";
+    };
+};
