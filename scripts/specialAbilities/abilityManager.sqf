@@ -39,7 +39,21 @@ RTSUI_abilityDatabase = [
         "SMG Burst",
         "Empty your SMG at a target in slow motion",
         "scripts\specialAbilities\abilities\smgBurst.sqf"
-    ]
+    ],
+	[
+		"medic",
+		"\A3\ui_f\data\IGUI\Cfg\Actions\heal_ca.paa",
+		"Combat Medic",
+		"Heal friendly units to 80% health",
+		"scripts\specialAbilities\abilities\medic.sqf"
+	],
+	[
+		"engineer",
+		"\A3\ui_f\data\IGUI\Cfg\Actions\repair_ca.paa",
+		"Field Engineer",
+		"Repair vehicles and structures to 100%",
+		"scripts\specialAbilities\abilities\engineer.sqf"
+	]
 ];
 
 // Get unit's unlocked abilities
