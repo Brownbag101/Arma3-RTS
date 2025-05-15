@@ -8,7 +8,7 @@ CONTEXT_MENU_MAX_ITEMS = 8;            // Maximum items to show in the menu
 CONTEXT_MENU_ICON_SIZE = 0.04;         // Icon size as fraction of screen height
 CONTEXT_MENU_HOVER_SCALE = 1.2;        // How much icons scale when hovered
 CONTEXT_MENU_FADE_TIME = 0.2;          // Fade in/out time in seconds
-CONTEXT_MENU_BG_COLOR = [0, 0, 0, 0.7]; // Background color [r,g,b,a]
+CONTEXT_MENU_BG_COLOR = [0, 0, 0, 0]; // Background color [r,g,b,a]
 CONTEXT_MENU_HOLD_THRESHOLD = 0.1;     // How long to hold Shift before menu appears (seconds)
 CONTEXT_MENU_USE_SPECIAL_ABILITIES = true; // Whether to include special abilities in the menu
 
@@ -26,6 +26,23 @@ CONTEXT_MENU_KEY_HANDLER = -1;         // Handler ID for key events
 CONTEXT_MENU_MOUSE_HANDLER = -1;       // Handler ID for mouse events
 CONTEXT_MENU_DRAW_HANDLER = -1;        // Handler ID for 3D drawing
 CONTEXT_MENU_TARGET_TYPE = "";         // Type of target ("OBJECT", "GROUND", etc.)
+
+// === GAMEPLAY VARIABLES: Alternative Background Textures ===
+// Uncomment one to change the background texture
+CONTEXT_MENU_BACKGROUND_TEXTURE = "\a3\ui_f\data\IGUI\Cfg\Radar\radar_ca.paa"; // Default radar
+// CONTEXT_MENU_BACKGROUND_TEXTURE = "\a3\ui_f\data\IGUI\RscIngameUI\RscHint\img_gradient_ca.paa"; // Gradient circle
+// CONTEXT_MENU_BACKGROUND_TEXTURE = "\a3\ui_f\data\IGUI\Cfg\RadialMenu\icon_center_ca.paa"; // Radial menu center
+// CONTEXT_MENU_BACKGROUND_TEXTURE = "\a3\ui_f\data\IGUI\Cfg\CommunicationMenu\instructor_ca.paa"; // Star-like pattern
+// CONTEXT_MENU_BACKGROUND_TEXTURE = "\a3\ui_f\data\IGUI\Cfg\CommandBar\artillery_ca.paa"; // Artillery target
+// CONTEXT_MENU_BACKGROUND_TEXTURE = "\a3\ui_f\data\GUI\Cfg\Cursors\hud_frame_ca.paa"; // HUD frame (military style)
+
+// === GAMEPLAY VARIABLES: Color tinting for backgrounds ===
+// Outer glow color (RGBA)
+CONTEXT_MENU_GLOW_COLOR = [0.1, 0.1, 0.15, 0.6];
+// Main background color (RGBA)
+CONTEXT_MENU_MAIN_COLOR = [0.15, 0.15, 0.2, 0.9];
+// Center highlight color (RGBA)
+CONTEXT_MENU_CENTER_COLOR = [0.25, 0.25, 0.35, 0.5];
 
 // Function to initialize the contextual menu system
 fnc_initContextualMenu = {
@@ -712,7 +729,7 @@ fnc_openContextMenu = {
     };
 };
 
-// Function to create the menu UI elements
+// Function to create the menu UI elements - WITH IMPROVED BUTTON CREATION
 fnc_createContextMenuUI = {
     private _display = findDisplay 312;
     
@@ -729,59 +746,130 @@ fnc_createContextMenuUI = {
     private _menuItems = count CONTEXT_MENU_ACTIONS;
     private _iconSize = CONTEXT_MENU_ICON_SIZE * safezoneH;
     
-    // Create menu background
-    private _background = _display ctrlCreate ["RscText", -1];
+    // Get texture from variable or use default
+    private _backgroundTexture = "\a3\ui_f\data\IGUI\Cfg\Radar\radar_ca.paa"; // Default
+    if (!isNil "CONTEXT_MENU_BACKGROUND_TEXTURE") then {
+        _backgroundTexture = CONTEXT_MENU_BACKGROUND_TEXTURE;
+    };
+    
+    // Get color values with fallbacks
+    private _glowColor = [0.1, 0.1, 0.15, 0.6]; // Default
+    if (!isNil "CONTEXT_MENU_GLOW_COLOR") then {
+        _glowColor = CONTEXT_MENU_GLOW_COLOR;
+    };
+    
+    private _mainColor = [0.15, 0.15, 0.2, 0.9]; // Default
+    if (!isNil "CONTEXT_MENU_MAIN_COLOR") then {
+        _mainColor = CONTEXT_MENU_MAIN_COLOR;
+    };
+    
+    private _centerColor = [0.25, 0.25, 0.35, 0.5]; // Default
+    if (!isNil "CONTEXT_MENU_CENTER_COLOR") then {
+        _centerColor = CONTEXT_MENU_CENTER_COLOR;
+    };
+    
+    // Set animation time to 0 for instant appearance
+    private _animTime = 0;
+    
+    // Create outer glow/shadow layer
+    private _glowLayer = _display ctrlCreate ["RscPicture", -1];
+    _glowLayer ctrlSetPosition [
+        (CONTEXT_MENU_SCREEN_POS select 0) - (_menuSize / 2) * 1.1,
+        (CONTEXT_MENU_SCREEN_POS select 1) - (_menuSize / 2) * 1.1,
+        _menuSize * 1.1,
+        _menuSize * 1.1
+    ];
+    _glowLayer ctrlSetText _backgroundTexture;
+    _glowLayer ctrlSetTextColor _glowColor;
+    _glowLayer ctrlCommit _animTime;
+    CONTEXT_MENU_CONTROLS pushBack _glowLayer;
+    
+    // Create main circular background
+    private _background = _display ctrlCreate ["RscPicture", -1];
     _background ctrlSetPosition [
-        (CONTEXT_MENU_SCREEN_POS select 0) - (_menuSize / 2) * (4/3),
+        (CONTEXT_MENU_SCREEN_POS select 0) - (_menuSize / 2),
         (CONTEXT_MENU_SCREEN_POS select 1) - (_menuSize / 2),
-        _menuSize * (4/3),
+        _menuSize,
         _menuSize
     ];
-    _background ctrlSetBackgroundColor CONTEXT_MENU_BG_COLOR;
-    _background ctrlCommit CONTEXT_MENU_FADE_TIME;
+    _background ctrlSetText _backgroundTexture;
+    _background ctrlSetTextColor _mainColor;
+    _background ctrlCommit _animTime;
     CONTEXT_MENU_CONTROLS pushBack _background;
     
-    // Create action buttons in a radial pattern
+    // Create center highlight
+    private _centerHighlight = _display ctrlCreate ["RscPicture", -1];
+    _centerHighlight ctrlSetPosition [
+        (CONTEXT_MENU_SCREEN_POS select 0) - (_menuSize / 6),
+        (CONTEXT_MENU_SCREEN_POS select 1) - (_menuSize / 6),
+        _menuSize * 0.33,
+        _menuSize * 0.33
+    ];
+    _centerHighlight ctrlSetText _backgroundTexture;
+    _centerHighlight ctrlSetTextColor _centerColor;
+    _centerHighlight ctrlCommit _animTime;
+    CONTEXT_MENU_CONTROLS pushBack _centerHighlight;
+    
+    // First create all controls without committing positions
+    private _icons = [];
+    
+    // Define fixed positions for up to 8 icons (standard maximum)
+    private _positions = [
+        [0, -1],    // Top
+        [0.7, -0.7], // Top right
+        [1, 0],     // Right
+        [0.7, 0.7],  // Bottom right
+        [0, 1],     // Bottom
+        [-0.7, 0.7], // Bottom left
+        [-1, 0],    // Left
+        [-0.7, -0.7] // Top left
+    ];
+    
+    // If we have fewer than 8 icons, use a subset of positions
+    if (_menuItems <= 4) then {
+        _positions = [
+            [0, -1],    // Top
+            [1, 0],     // Right
+            [0, 1],     // Bottom
+            [-1, 0]     // Left
+        ];
+    };
+    
+    // Position each icon and button - NOW COMBINED INTO A SINGLE ELEMENT
     for "_i" from 0 to (_menuItems - 1) do {
         private _action = CONTEXT_MENU_ACTIONS select _i;
         _action params ["_name", "_iconPath", "_tooltip", "_type", "_params", "_enabled"];
         
-        // Calculate position based on index
-        private _angle = 360 / _menuItems * _i;
-        private _radius = _menuSize * 0.35;
-        private _xOffset = sin(_angle) * _radius;
-        private _yOffset = cos(_angle) * _radius;
+        // Calculate position
+        private _posIndex = _i mod (count _positions);
+        private _pos = _positions select _posIndex;
         
-        // Create icon
-        private _icon = _display ctrlCreate ["RscPictureKeepAspect", -1];
+        private _xFactor = _pos select 0;
+        private _yFactor = _pos select 1;
+        
+        private _radius = _menuSize * 0.35;
+        private _xOffset = _xFactor * _radius;
+        private _yOffset = _yFactor * _radius;
+        
+        // MAJOR CHANGE: Use RscActivePicture instead of separate button and picture
+        private _icon = _display ctrlCreate ["RscActivePicture", -1];
+        _icon setVariable ["actionIndex", _i];
+        _icon setVariable ["isIcon", true];
+        _icon ctrlSetText _iconPath;
+        _icon ctrlSetTextColor [1, 1, 1, 0.9]; // Slightly dimmed by default
+        _icon ctrlSetBackgroundColor [0, 0, 0, 0]; // Completely transparent background
+        _icon ctrlSetTooltip format ["%1: %2", _name, _tooltip];
+        
+        // Position the icon
         _icon ctrlSetPosition [
             (CONTEXT_MENU_SCREEN_POS select 0) + _xOffset - (_iconSize / 2),
             (CONTEXT_MENU_SCREEN_POS select 1) + _yOffset - (_iconSize / 2),
             _iconSize,
             _iconSize
         ];
-        _icon ctrlSetText _iconPath;
-        _icon ctrlSetTooltip format ["%1: %2", _name, _tooltip];
-        _icon ctrlCommit CONTEXT_MENU_FADE_TIME;
-        CONTEXT_MENU_CONTROLS pushBack _icon;
         
-        // Create button for interaction (invisible but clickable)
-        private _btn = _display ctrlCreate ["RscButton", -1];
-        _btn ctrlSetPosition [
-            (CONTEXT_MENU_SCREEN_POS select 0) + _xOffset - (_iconSize / 2),
-            (CONTEXT_MENU_SCREEN_POS select 1) + _yOffset - (_iconSize / 2),
-            _iconSize,
-            _iconSize
-        ];
-        _btn ctrlSetText "";
-        _btn ctrlSetTooltip format ["%1: %2", _name, _tooltip];
-        _btn ctrlSetBackgroundColor [0, 0, 0, 0.01]; // Almost transparent
-        
-        // Store the action index
-        _btn setVariable ["actionIndex", _i];
-        
-        // Add click handler
-        _btn ctrlAddEventHandler ["ButtonClick", {
+        // Add click handler directly to the active picture
+        _icon ctrlAddEventHandler ["ButtonClick", {
             params ["_ctrl"];
             private _index = _ctrl getVariable "actionIndex";
             [_index] call fnc_executeMenuAction;
@@ -789,24 +877,50 @@ fnc_createContextMenuUI = {
         }];
         
         // Add hover handlers
-        _btn ctrlAddEventHandler ["MouseEnter", {
+        _icon ctrlAddEventHandler ["MouseEnter", {
             params ["_ctrl"];
             private _index = _ctrl getVariable "actionIndex";
             CONTEXT_MENU_SELECTED_INDEX = _index;
-            call fnc_updateMenuHighlight;
+            
+            // Apply hover effect directly
+            private _hoverSize = CONTEXT_MENU_ICON_SIZE * CONTEXT_MENU_HOVER_SCALE * safezoneH;
+            private _pos = ctrlPosition _ctrl;
+            private _centerX = (_pos select 0) + (_pos select 2) / 2;
+            private _centerY = (_pos select 1) + (_pos select 3) / 2;
+            
+            _ctrl ctrlSetPosition [
+                _centerX - _hoverSize / 2,
+                _centerY - _hoverSize / 2,
+                _hoverSize,
+                _hoverSize
+            ];
+            _ctrl ctrlSetTextColor [1, 1, 1, 1]; // Full brightness
+            _ctrl ctrlCommit 0.1;
         }];
         
-        _btn ctrlAddEventHandler ["MouseExit", {
+        _icon ctrlAddEventHandler ["MouseExit", {
+            params ["_ctrl"];
             CONTEXT_MENU_SELECTED_INDEX = -1;
-            call fnc_updateMenuHighlight;
+            
+            // Revert hover effect directly
+            private _normalSize = CONTEXT_MENU_ICON_SIZE * safezoneH;
+            private _pos = ctrlPosition _ctrl;
+            private _centerX = (_pos select 0) + (_pos select 2) / 2;
+            private _centerY = (_pos select 1) + (_pos select 3) / 2;
+            
+            _ctrl ctrlSetPosition [
+                _centerX - _normalSize / 2,
+                _centerY - _normalSize / 2,
+                _normalSize,
+                _normalSize
+            ];
+            _ctrl ctrlSetTextColor [1, 1, 1, 0.9]; // Slightly dimmed
+            _ctrl ctrlCommit 0.1;
         }];
         
-        _btn ctrlCommit CONTEXT_MENU_FADE_TIME;
-        CONTEXT_MENU_CONTROLS pushBack _btn;
-        
-        // Store references for highlighting
-        _icon setVariable ["actionIndex", _i];
-        _icon setVariable ["isIcon", true];
+        _icon ctrlCommit _animTime;
+        _icons pushBack _icon;
+        CONTEXT_MENU_CONTROLS pushBack _icon;
     };
     
     // Create title text
@@ -833,8 +947,14 @@ fnc_createContextMenuUI = {
     
     _title ctrlSetText _titleText;
     _title ctrlSetTextColor [1, 1, 1, 1];
-    _title ctrlCommit CONTEXT_MENU_FADE_TIME;
+    _title ctrlCommit _animTime;
     CONTEXT_MENU_CONTROLS pushBack _title;
+};
+
+// Updated function for menu highlight - NOT NEEDED ANYMORE as we handle hover directly
+fnc_updateMenuHighlight = {
+    // This function is now empty as hover effects are handled directly in the control event handlers
+    // Only leaving it empty to maintain compatibility with existing code that might call it
 };
 
 // Function to update highlighted menu item
@@ -850,7 +970,7 @@ fnc_updateMenuHighlight = {
         private _index = _x getVariable ["actionIndex", -1];
         
         if (_index == CONTEXT_MENU_SELECTED_INDEX) then {
-            // Highlight this item
+            // Highlight this item - just make it bigger and brighter
             private _iconSize = CONTEXT_MENU_ICON_SIZE * CONTEXT_MENU_HOVER_SCALE * safezoneH;
             private _pos = ctrlPosition _x;
             private _centerX = (_pos select 0) + (_pos select 2) / 2;
@@ -862,8 +982,8 @@ fnc_updateMenuHighlight = {
                 _iconSize,
                 _iconSize
             ];
-            _x ctrlSetTextColor [1, 1, 1, 1];
-            _x ctrlCommit 0.1;
+            _x ctrlSetTextColor [1, 1, 1, 1]; // Full brightness
+            _x ctrlCommit 0.1; // Quick animation
         } else {
             // Reset this item
             private _iconSize = CONTEXT_MENU_ICON_SIZE * safezoneH;
@@ -877,7 +997,7 @@ fnc_updateMenuHighlight = {
                 _iconSize,
                 _iconSize
             ];
-            _x ctrlSetTextColor [1, 1, 1, 0.8];
+            _x ctrlSetTextColor [1, 1, 1, 0.8]; // Slightly dimmed
             _x ctrlCommit 0.1;
         };
     } forEach CONTEXT_MENU_CONTROLS;
